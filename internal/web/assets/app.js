@@ -25,6 +25,23 @@ function toast(msg) {
   t._timer = setTimeout(() => t.classList.remove('show'), 2600);
 }
 
+/* ---------------- 主题切换 ---------------- */
+const THEME_META = { kawaii: '#ff8fb0', mature: '#0e1220' };
+function applyTheme(name) {
+  document.body.dataset.theme = name;
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = THEME_META[name] || THEME_META.kawaii;
+  try { localStorage.setItem('gis-theme', name); } catch (e) { /* ignore */ }
+}
+$('#theme-toggle').addEventListener('click', () => {
+  applyTheme(document.body.dataset.theme === 'mature' ? 'kawaii' : 'mature');
+});
+(function initTheme() {
+  let saved = 'kawaii';
+  try { saved = localStorage.getItem('gis-theme') || 'kawaii'; } catch (e) { /* ignore */ }
+  applyTheme(saved);
+})();
+
 async function fetchJSON(url, opts) {
   const res = await fetch(url, opts);
   if (!res.ok) {
@@ -60,30 +77,59 @@ $$('.seg').forEach(seg => {
 /* ---------------- 查询图片选择 ---------------- */
 let queryFile = null;
 const dropzone = $('#dropzone');
+const pastezone = $('#pastezone');
 const queryInput = $('#query-input');
 
+function resetPickers() {
+  ['#dz-placeholder', '#pz-placeholder'].forEach(s => $(s).style.display = '');
+  ['#query-preview', '#paste-preview'].forEach(s => {
+    const el = $(s);
+    el.style.display = 'none';
+    el.removeAttribute('src');
+  });
+}
+
+function setQueryFile(f, source) {
+  queryFile = f;
+  resetPickers();
+  if (source === 'paste') {
+    $('#pz-placeholder').style.display = 'none';
+    const img = $('#paste-preview');
+    img.src = URL.createObjectURL(f);
+    img.style.display = 'block';
+  } else {
+    $('#dz-placeholder').style.display = 'none';
+    const img = $('#query-preview');
+    img.src = URL.createObjectURL(f);
+    img.style.display = 'block';
+  }
+  $('#query-name').textContent = f.name;
+  $('#query-name').style.display = '';
+  $('#btn-search').disabled = false;
+  $('#results-empty').hidden = true;
+  $('#results').innerHTML = '';
+  doSearch();
+}
+
 dropzone.addEventListener('click', () => queryInput.click());
-queryInput.addEventListener('change', () => { if (queryInput.files[0]) setQueryFile(queryInput.files[0]); });
+pastezone.addEventListener('click', () => queryInput.click());
+queryInput.addEventListener('change', () => { if (queryInput.files[0]) setQueryFile(queryInput.files[0], 'drop'); });
 
 dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
 dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
 dropzone.addEventListener('drop', e => {
   e.preventDefault();
   dropzone.classList.remove('dragover');
-  if (e.dataTransfer.files[0]) setQueryFile(e.dataTransfer.files[0]);
+  if (e.dataTransfer.files[0]) setQueryFile(e.dataTransfer.files[0], 'drop');
 });
 
-function setQueryFile(f) {
-  queryFile = f;
-  $('#dz-placeholder').style.display = 'none';
-  const img = $('#query-preview');
-  img.src = URL.createObjectURL(f);
-  img.style.display = 'block';
-  $('#query-name').textContent = f.name;
-  $('#btn-search').disabled = false;
-  $('#results-empty').hidden = true;
-  $('#results').innerHTML = '';
-}
+document.addEventListener('paste', e => {
+  const item = Array.from((e.clipboardData && e.clipboardData.items) || []).find(i => i.type.startsWith('image/'));
+  if (!item) return;
+  e.preventDefault();
+  const f = item.getAsFile();
+  if (f) setQueryFile(f, 'paste');
+});
 
 /* ---------------- 搜索 ---------------- */
 const colorRange = $('#color-range');
@@ -98,7 +144,7 @@ function segVal(segSel) {
   return active ? active.dataset.val : '5';
 }
 
-$('#btn-search').addEventListener('click', async () => {
+async function doSearch() {
   if (!queryFile) return;
   const fd = new FormData();
   fd.append('image', queryFile);
@@ -122,7 +168,9 @@ $('#btn-search').addEventListener('click', async () => {
     $('#search-busy').hidden = true;
     $('#btn-search').disabled = false;
   }
-});
+}
+
+$('#btn-search').addEventListener('click', doSearch);
 
 function renderResults(data) {
   const box = $('#results');
@@ -143,12 +191,17 @@ function resultCard(m, i) {
   const el = document.createElement('div');
   el.className = 'card result-card';
   const src = '/api/image?path=' + encodeURIComponent(m.imageId);
+  const rel = relOf(m.imageId);
   el.innerHTML =
     '<img class="thumb" src="' + src + '" alt="">' +
     '<div class="result-body">' +
       '<div class="result-top"><span class="result-name">' + esc(base(m.imageId)) + '</span><span class="rank">#' + (i + 1) + '</span></div>' +
       '<div class="scorebar"><div style="width:' + score + '%"></div></div>' +
       '<div class="result-meta">相似度 ' + score + '% · 覆盖 ' + cover + '% · 命中 ' + m.count + ' 区域</div>' +
+      '<div class="result-actions">' +
+        '<button class="copy-btn"><span class="copy-label">复制路径</span></button>' +
+        '<button class="copy-btn"><span class="copy-label">复制相对路径</span></button>' +
+      '</div>' +
       '<div class="result-regions">' +
         (m.regions || []).map(r =>
           '<div class="rr"><span><span class="dot" style="background:' + esc(r.color) + '"></span>区域 #' + r.regionId + '</span><span>dist ' + r.dist + '</span></div>'
@@ -156,7 +209,37 @@ function resultCard(m, i) {
       '</div>' +
     '</div>';
   el.querySelector('.thumb').addEventListener('click', () => viewImage(src, m.imageId));
+  const btns = el.querySelectorAll('.copy-btn');
+  btns[0].addEventListener('click', () => copyText(m.imageId));
+  btns[1].addEventListener('click', () => copyText(rel));
   return el;
+}
+
+let libRoot = '';
+function relOf(p) {
+  const norm = p.replace(/\\/g, '/');
+  if (!libRoot) return norm;
+  const root = libRoot.replace(/\\/g, '/');
+  if (norm.startsWith(root)) return norm.slice(root.length).replace(/^\/+/, '');
+  return norm;
+}
+function copyText(t) {
+  const done = msg => toast(msg);
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(t).then(() => done('已复制：' + t)).catch(() => fallbackCopy(t, done));
+  } else {
+    fallbackCopy(t, done);
+  }
+}
+function fallbackCopy(t, done) {
+  const ta = document.createElement('textarea');
+  ta.value = t;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); done('已复制：' + t); } catch (e) { done('复制失败'); }
+  document.body.removeChild(ta);
 }
 
 /* ---------------- 图片查看 ---------------- */
@@ -294,6 +377,7 @@ $('#btn-load').addEventListener('click', async () => {
 async function refreshStatus() {
   try {
     const st = await fetchJSON('/api/status');
+    libRoot = st.root || libRoot;
     $('#st-load').textContent = st.loaded ? '已加载' : '未加载';
     $('#st-images').textContent = st.images;
     $('#st-regions').textContent = st.regions;
