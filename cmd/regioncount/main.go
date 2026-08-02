@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"go-image-search/internal/imageproc"
+	"go-image-search/internal/phash"
 	"go-image-search/internal/segment"
 )
 
@@ -51,7 +52,8 @@ func main() {
 				continue
 			}
 			infos = append(infos, segment.RegionInfo{
-				ID: reg.ID, Area: reg.Area, Color: reg.MeanColor, BBox: reg.BBox,
+				ID: reg.ID, Hash: phash.Hash(crop), Shape: phash.Hash(imageproc.StructuralMask(crop)),
+				Area: reg.Area, Color: reg.MeanColor, BBox: reg.BBox,
 			})
 		}
 		merged := segment.MergeSimilar(v, res, infos, mc)
@@ -65,7 +67,28 @@ func main() {
 		gravReplace := segment.GravityMerge(v, merged, gcReplace)
 		nGravReplace := len(gravReplace)
 
-		fmt.Printf("[%s] segment=%d  merge=%d  gravity辅助(additive)=%d  gravity替换后=%d  索引入库总数(merge+辅助)=%d\n",
-			name, nSeg, nMerged, len(gravAux), nGravReplace, nMerged+len(gravAux))
+		// 与 processRegions 默认（Additive）路径一致：
+		// partition = merged → 边框过滤 → 整图辅助(绿) → 蓝框合并 → 红框转蓝
+		filtered := segment.FilterFullFrame(merged, v.Bounds().Dx(), v.Bounds().Dy(), gc.FrameRatio)
+		nFrame := nMerged - len(filtered)
+		nCombineFew := 0
+		if segment.ShouldAddWholeAux(gc, filtered, gravAux) {
+			nCombineFew = 1
+		}
+
+		// 蓝框相交/相互包含 → 合并为新的辅助区域（仅引力蓝框，红框转蓝的不合并）
+		aux := append([]segment.MergedRegion{}, gravAux...)
+		mergedAux := segment.MergeContainedOverlapping(v, aux)
+		// 红框自动变蓝：划分区域逐个转蓝入库
+		if gc.Enabled && gc.CombineFew > 0 && len(filtered) >= 2 {
+			for _, p := range filtered {
+				p.Whole = false
+				mergedAux = append(mergedAux, p)
+			}
+		}
+		nMergedAux := len(mergedAux) + nCombineFew
+
+		fmt.Printf("[%s] segment=%d  merge=%d  gravity辅助(additive)=%d  gravity替换后=%d  边框丢弃=%d  蓝框合并后=%d  整图辅助=%d  索引入库总数(蓝框+整图)=%d\n",
+			name, nSeg, nMerged, len(gravAux), nGravReplace, nFrame, len(mergedAux), nCombineFew, nMergedAux)
 	}
 }

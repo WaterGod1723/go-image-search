@@ -84,7 +84,7 @@ func TestRealDatasetSearch(t *testing.T) {
 			for _, h := range hashes {
 				qs = append(qs, index.QueryRegion{
 					Hash: h.Hash, Shape: h.Shape, Area: h.Area, Color: h.Color,
-					NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect,
+					NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect, Global: h.Global,
 				})
 			}
 			querySets = append(querySets, qs)

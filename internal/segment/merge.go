@@ -49,6 +49,7 @@ type MergedRegion struct {
 	Area      int             // 面积（组合区域为成员面积之和）
 	BBox      image.Rectangle // 组合区域为成员 bbox 之并
 	MeanColor color.RGBA      // 组合区域为面积加权平均色
+	Whole     bool            // 是否为"整图"辅助区域（最终区域过少时合并全部区域所得）
 }
 
 // MergeSimilar 将感知哈希相近且空间邻近/相邻的区域合并为组合区域。

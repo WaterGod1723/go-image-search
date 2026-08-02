@@ -233,6 +233,105 @@ func TestGravityMinRegionsClamp(t *testing.T) {
 	}
 }
 
+// TestShouldAddWholeAux 验证整图辅助触发依据：优先蓝色辅助区域数量，其次回退红框数量。
+func TestShouldAddWholeAux(t *testing.T) {
+	part := mkGravityRegions(6, 10, 20, color.RGBA{80, 80, 80, 255}) // 红框 6 个
+	blue4 := mkGravityRegions(4, 10, 20, color.RGBA{0, 0, 255, 255}) // 蓝框 4 个
+	blue6 := mkGravityRegions(6, 10, 20, color.RGBA{0, 0, 255, 255}) // 蓝框 6 个
+
+	g := DefaultGravityConfig() // CombineFew=5
+	cases := []struct {
+		name      string
+		always    bool
+		partN     int
+		blue      []MergedRegion
+		expectAdd bool
+	}{
+		{"蓝框4<5优先触发", false, 6, blue4, true},
+		{"蓝框6>=5不触发", false, 6, blue6, false},
+		{"无蓝框回退红框6>=5不触发", false, 6, nil, false},
+		{"无蓝框回退红框4<5触发", false, 4, nil, true},
+		{"蓝框2<5触发", false, 4, blue4[:2], true},
+		{"CombineAlways无条件触发", true, 6, nil, true},
+	}
+	for _, c := range cases {
+		gc := g
+		gc.CombineAlways = c.always
+		if c.partN > len(part) {
+			t.Fatalf("测试数据不足 partN=%d", c.partN)
+		}
+		got := ShouldAddWholeAux(gc, part[:c.partN], c.blue)
+		if got != c.expectAdd {
+			t.Errorf("%s: 期望=%v 得到=%v", c.name, c.expectAdd, got)
+		}
+	}
+
+	// 禁用 / CombineFew=0 / partition<2 均不触发
+	gc := g
+	gc.Enabled = false
+	if ShouldAddWholeAux(gc, part[:6], blue4) {
+		t.Error("禁用时不应触发")
+	}
+	gc.Enabled = true
+	gc.CombineFew = 0
+	if ShouldAddWholeAux(gc, part[:6], blue4) {
+		t.Error("CombineFew=0 时不应触发")
+	}
+	if ShouldAddWholeAux(g, part[:1], blue4) {
+		t.Error("partition<2 时不应触发")
+	}
+}
+
+// TestFilterFullFrame 验证边框过滤：bbox 覆盖宽、高均 ≥ ratio 的区域被丢弃，
+// 其余保留；ratio<=0 或列表为空时原样返回。
+func TestFilterFullFrame(t *testing.T) {
+	w, h := 100, 80
+	regs := []MergedRegion{
+		{ID: 1, BBox: image.Rect(0, 0, 100, 80)},   // 覆盖全图
+		{ID: 2, BBox: image.Rect(2, 1, 98, 79)},   // 几乎重合
+		{ID: 3, BBox: image.Rect(10, 10, 40, 40)}, // 正常内容区域
+		{ID: 4, BBox: image.Rect(0, 0, 100, 30)},  // 仅宽度覆盖全图
+	}
+	out := FilterFullFrame(regs, w, h, 0.9)
+	if len(out) != 2 {
+		t.Fatalf("应保留 2 个区域，得到 %d: %v", len(out), bboxes(out))
+	}
+	for _, r := range out {
+		switch r.ID {
+		case 1, 2:
+			t.Fatalf("全图/几乎重合区域应被丢弃: %+v", r)
+		}
+	}
+
+	if got := FilterFullFrame(regs, w, h, 0); len(got) != 4 {
+		t.Fatalf("ratio<=0 应原样返回，得到 %d", len(got))
+	}
+	if got := FilterFullFrame(nil, w, h, 0.9); len(got) != 0 {
+		t.Fatalf("空列表应返回空，得到 %d", len(got))
+	}
+}
+
+// TestMergeAll 验证整图辅助区域：全部区域合并为一个组合区域，
+// bbox 为成员之并，面积为成员面积之和。
+func TestMergeAll(t *testing.T) {
+	img := mkBands(30, 20, []color.RGBA{{R: 80, G: 80, B: 80, A: 255}})
+	regs := mkGravityRegions(3, 10, 20, color.RGBA{80, 80, 80, 255})
+
+	out := MergeAll(img, regs)
+	if len(out.Members) != 3 {
+		t.Fatalf("应合并 3 个成员，得到 %d", len(out.Members))
+	}
+	if out.BBox != image.Rect(0, 0, 30, 20) {
+		t.Fatalf("整图 bbox 应为 (0,0,30,20)，得到 %v", out.BBox)
+	}
+	if out.Area != 600 {
+		t.Fatalf("总面积应为 600，得到 %d", out.Area)
+	}
+	if out.Hash == 0 {
+		t.Fatal("整图区域应重算感知哈希")
+	}
+}
+
 // bboxes 返回区域列表的 bbox 字符串，用于错误信息。
 func bboxes(rs []MergedRegion) []string {
 	out := make([]string, len(rs))

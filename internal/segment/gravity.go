@@ -23,15 +23,21 @@ type GravityConfig struct {
 	MinRegions   int  // 至少保留的区域数（达到后停止聚合），默认 5
 	TriggerCount int  // 区域数超过该值才启动聚合，默认 5（>5 即触发）
 	Additive     bool // true：仅返回组合区域（≥2 成员）作为辅助追加；false：返回聚合后完整集合替换原区域
+	CombineFew   int  // 最终区域数少于该值时，将全部最终区域合并为一个整体辅助索引区域；0 表示不启用，默认 5
+	CombineAlways bool // true：无论区域数多少都无条件追加整图辅助区域（用于查询阶段，不受 CombineFew 门槛限制）
+	FrameRatio   float64 // 丢弃 bbox 覆盖图像宽、高均 ≥ 该比例的边框区域（可能为无效边框/背景）；0 表示不启用，默认 0.9
 }
 
 // DefaultGravityConfig 推荐默认参数。
 func DefaultGravityConfig() GravityConfig {
 	return GravityConfig{
-		Enabled:      true,
-		MinRegions:   5,
-		TriggerCount: 5,
-		Additive:     true,
+		Enabled:       true,
+		MinRegions:    5,
+		TriggerCount:  5,
+		Additive:      true,
+		CombineFew:    5,
+		CombineAlways: false,
+		FrameRatio:    0.9,
 	}
 }
 
@@ -136,6 +142,121 @@ func GravityMerge(src image.Image, regions []MergedRegion, cfg GravityConfig) []
 		regs[i].ID = i + 1
 	}
 	return regs
+}
+
+// FilterFullFrame 丢弃与图像边界几乎重合的区域（可能为无效边框/背景）。
+// 区域 bbox 覆盖图像宽度与高度的比例均 ≥ ratio 时判定为边框区域并丢弃。
+// ratio ≤ 0 或尺寸无效时原样返回。返回新切片，不修改入参。
+func FilterFullFrame(regions []MergedRegion, w, h int, ratio float64) []MergedRegion {
+	if ratio <= 0 || len(regions) == 0 || w <= 0 || h <= 0 {
+		return regions
+	}
+	out := make([]MergedRegion, 0, len(regions))
+	for _, r := range regions {
+		if float64(r.BBox.Dx()) >= float64(w)*ratio && float64(r.BBox.Dy()) >= float64(h)*ratio {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// ShouldAddWholeAux 判断是否需要追加"整图"辅助区域（绿框）。
+// 触发依据优先取蓝色框（引力辅助组合区域）数量，其次才以最初的红框（划分区域）数量为准：
+//   - CombineAlways 时无条件追加（仍需 partition >= 2）；
+//   - 存在蓝色辅助区域时，蓝色数量 < CombineFew 即追加；
+//   - 否则回退到最初划分区域（红框）数量 < CombineFew。
+func ShouldAddWholeAux(g GravityConfig, partition, aux []MergedRegion) bool {
+	if !g.Enabled || g.CombineFew <= 0 || len(partition) < 2 {
+		return false
+	}
+	if g.CombineAlways {
+		return true
+	}
+	if len(aux) > 0 {
+		return len(aux) < g.CombineFew
+	}
+	return len(partition) < g.CombineFew
+}
+
+// MergeContainedOverlapping 合并 bbox 相交或相互包含的辅助区域为新的组合区域。
+// 相交或包含（A 在 B 内或 B 在 A 内）的区域归为一组，组内依次融合为一个新区域
+// （bbox 为成员之并、面积求和、哈希与平均色重算），以提升每个索引区域的全局信息，
+// 避免碎片化区域影响召回。结果按最小成员 ID 确定性排序；无合并时原样返回副本。
+func MergeContainedOverlapping(src image.Image, regions []MergedRegion) []MergedRegion {
+	if len(regions) < 2 {
+		return cloneMerged(regions)
+	}
+	n := len(regions)
+	parent := make([]int, n)
+	for i := range parent {
+		parent[i] = i
+	}
+	var find func(int) int
+	find = func(x int) int {
+		if parent[x] != x {
+			parent[x] = find(parent[x])
+		}
+		return parent[x]
+	}
+	for i := 0; i < n; i++ {
+		for j := i + 1; j < n; j++ {
+			// 相交或相互包含：交集非空即满足
+			if !regions[i].BBox.Intersect(regions[j].BBox).Empty() {
+				ri, rj := find(i), find(j)
+				if ri != rj {
+					parent[rj] = ri
+				}
+			}
+		}
+	}
+	groups := make(map[int][]MergedRegion)
+	for i := range regions {
+		root := find(i)
+		groups[root] = append(groups[root], regions[i])
+	}
+	out := make([]MergedRegion, 0, len(groups))
+	for _, g := range groups {
+		if len(g) == 1 {
+			out = append(out, g[0])
+			continue
+		}
+		m := g[0]
+		for _, r := range g[1:] {
+			m = mergeTwoMerged(src, m, r)
+		}
+		out = append(out, m)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return minID(out[i].Members) < minID(out[j].Members)
+	})
+	return out
+}
+
+// GlobalWeight 返回区域包含的"全局信息"权重（≥1）：
+// 整图辅助区域（绿框）权重最高；组合辅助区域（蓝框）随成员数递增；
+// 单个划分区域权重为 1。用于召回阶段提升全局信息多区域的权重。
+func GlobalWeight(m MergedRegion) float64 {
+	if m.Whole {
+		return 3.0
+	}
+	n := len(m.Members)
+	if n <= 1 {
+		return 1.0
+	}
+	return 1 + 0.5*math.Log(float64(n)) // 2→1.35, 4→1.69, 8→2.04
+}
+
+// MergeAll 将全部区域合并为一个整体组合区域（bbox 为成员之并，重算哈希与平均色）。
+// 用于最终区域数过少时构建一个"整图"辅助索引区域，返回的区域 Whole=true。
+func MergeAll(src image.Image, regions []MergedRegion) MergedRegion {
+	all := cloneMerged(regions)
+	m := all[0]
+	for _, r := range all[1:] {
+		m = mergeTwoMerged(src, m, r)
+	}
+	m.Whole = true
+	return m
 }
 
 // mergeTwoMerged 融合两个区域为一个组合区域（bbox 为成员之并，重算哈希）。

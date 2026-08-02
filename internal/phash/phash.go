@@ -66,6 +66,7 @@ func Distance01(a, b uint64) float64 {
 	return 1 - float64(h)/Bits
 }
 
+// grayscaleResize 将任意图像双线性缩放为 size×size 灰度图。
 func grayscaleResize(src image.Image, size int) *image.Gray {
 	g := image.NewGray(image.Rect(0, 0, size, size))
 	sb := src.Bounds()

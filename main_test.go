@@ -143,6 +143,63 @@ func TestEndToEndSearch(t *testing.T) {
 	}
 }
 
+// TestProcessRegionsCombineFew 验证最终区域数过少时追加"整图"辅助区域：
+// CombineFew 生效时 aux 包含一个 bbox 覆盖全图的组合区域；
+// CombineFew=0 禁用时 aux 不含整图区域。
+func TestProcessRegionsCombineFew(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 100, 100))
+	for y := 0; y < 100; y++ {
+		for x := 0; x < 100; x++ {
+			img.Set(x, y, color.RGBA{250, 250, 250, 255})
+		}
+	}
+	fillRect := func(r image.Rectangle, c color.RGBA) {
+		for y := r.Min.Y; y < r.Max.Y; y++ {
+			for x := r.Min.X; x < r.Max.X; x++ {
+				img.Set(x, y, c)
+			}
+		}
+	}
+	fillRect(image.Rect(10, 10, 30, 30), color.RGBA{200, 30, 30, 255})
+	fillRect(image.Rect(60, 60, 90, 90), color.RGBA{30, 30, 200, 255})
+
+	cfg := segment.DefaultConfig()
+	mc := segment.DefaultMergeConfig()
+
+	grav := segment.DefaultGravityConfig()
+	_, partition, all, err := processRegions(img, cfg, mc, grav)
+	if err != nil {
+		t.Fatalf("processRegions 失败: %v", err)
+	}
+	// 白色背景区域 bbox 与全图重合，应被边框过滤丢弃
+	for _, p := range partition {
+		if p.BBox == image.Rect(0, 0, 100, 100) {
+			t.Fatalf("全图背景区域应被边框过滤丢弃: %+v", p)
+		}
+	}
+	hasWhole := false
+	for _, a := range all {
+		if a.Whole && len(a.Members) > 1 {
+			hasWhole = true
+		}
+	}
+	if !hasWhole {
+		t.Fatalf("CombineFew 生效时应有整图辅助区域，得到 %v", all)
+	}
+
+	grav2 := grav
+	grav2.CombineFew = 0
+	_, _, all2, err := processRegions(img, cfg, mc, grav2)
+	if err != nil {
+		t.Fatalf("processRegions(禁用) 失败: %v", err)
+	}
+	for _, a := range all2 {
+		if a.Whole {
+			t.Fatalf("CombineFew=0 时不应有整图辅助区域: %+v", a)
+		}
+	}
+}
+
 func loadTestImage(path string) (image.Image, error) {
 	f, err := os.Open(path)
 	if err != nil {

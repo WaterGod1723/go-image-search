@@ -161,6 +161,36 @@ func processRegions(img image.Image, cfg segment.Config, mergeCfg segment.MergeC
 		}
 	}
 
+	// 丢弃与图像边界几乎重合的区域（无效边框/背景）
+	if grav.FrameRatio > 0 {
+		partition = segment.FilterFullFrame(partition, img.Bounds().Dx(), img.Bounds().Dy(), grav.FrameRatio)
+	}
+
+	// 整图辅助（绿框）：触发依据优先取蓝色辅助区域数量，其次才是最初划分区域（红框）数量。
+	// 在蓝框合并/红框转蓝之前判定，避免 relabel 后 aux 数量变化影响触发。
+	var whole *segment.MergedRegion
+	if segment.ShouldAddWholeAux(grav, partition, aux) {
+		w := segment.MergeAll(img, partition)
+		whole = &w
+	}
+
+	// 蓝框相交、相互包含 → 合并为新的辅助区域，提升每个索引区域的全局信息。
+	aux = segment.MergeContainedOverlapping(img, aux)
+
+	// 红框自动变蓝：划分区域逐个标记为蓝色辅助区域（仅标记，不合并成一个蓝色区域），
+	// 使索引只包含蓝框与绿框，红框不再直接入库。
+	if grav.Enabled && grav.CombineFew > 0 && len(partition) >= 2 {
+		for i := range partition {
+			p := partition[i]
+			p.Whole = false
+			aux = append(aux, p)
+		}
+	}
+
+	if whole != nil {
+		aux = append(aux, *whole)
+	}
+
 	// 顺序编号：partition 1..P，aux P+1..P+A
 	id := 0
 	for i := range partition {
@@ -181,12 +211,16 @@ func processRegions(img image.Image, cfg segment.Config, mergeCfg segment.MergeC
 // 当 grav.Enabled 且区域数过多时，按引力模型聚合出辅助区域（Additive 模式追加，
 // replace 模式替换），用于辅助检索。
 func hashImage(img image.Image, cfg segment.Config, mergeCfg segment.MergeConfig, grav segment.GravityConfig) ([]index.RegionHash, error) {
-	res, _, all, err := processRegions(img, cfg, mergeCfg, grav)
+	res, partition, all, err := processRegions(img, cfg, mergeCfg, grav)
 	if err != nil {
 		return nil, err
 	}
-	hashes := make([]index.RegionHash, 0, len(all))
-	for _, m := range all {
+	idx := all
+	if len(all) > len(partition) {
+		idx = all[len(partition):] // 仅蓝框+绿框入库
+	}
+	hashes := make([]index.RegionHash, 0, len(idx))
+	for _, m := range idx {
 		bw, bh := m.BBox.Dx(), m.BBox.Dy()
 		fill, aspect := 0.0, 0.0
 		if bw > 0 && bh > 0 {
@@ -211,6 +245,7 @@ func hashImage(img image.Image, cfg segment.Config, mergeCfg segment.MergeConfig
 			NY:       ny,
 			Fill:     fill,
 			Aspect:   aspect,
+			Global:   segment.GlobalWeight(m),
 		})
 	}
 	return hashes, nil
@@ -444,6 +479,8 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 	cfg := segment.DefaultConfig()
 	grav := gravityConfigFromQuery(r.Form)
+	// 查询阶段无条件追加整图辅助区域，提升整图级别的召回
+	grav.CombineAlways = true
 	// 对查询图像生成原图 + 骨架图两张衍生图分别检索，
 	// 任一衍生图与索引图像相似即认为该图像相似。
 	querySets := make([][]index.QueryRegion, 0, 2)
@@ -456,7 +493,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		for _, h := range hashes {
 			qs = append(qs, index.QueryRegion{
 				Hash: h.Hash, Shape: h.Shape, Area: h.Area, Color: h.Color,
-				NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect,
+				NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect, Global: h.Global,
 			})
 		}
 		querySets = append(querySets, qs)
@@ -539,6 +576,7 @@ type regionJSON struct {
 	Area  int    `json:"area"`
 	BBox  [4]int `json:"bbox"`
 	Color string `json:"color"`
+	Whole bool   `json:"whole"` // 是否为"整图"辅助区域（绿框）
 }
 
 func (s *Server) handleSegments(w http.ResponseWriter, r *http.Request) {
@@ -561,6 +599,7 @@ func (s *Server) handleSegments(w http.ResponseWriter, r *http.Request) {
 			Area:  reg.Area,
 			BBox:  [4]int{reg.BBox.Min.X, reg.BBox.Min.Y, reg.BBox.Max.X, reg.BBox.Max.Y},
 			Color: fmt.Sprintf("#%02x%02x%02x", reg.MeanColor.R, reg.MeanColor.G, reg.MeanColor.B),
+			Whole: reg.Whole,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -587,7 +626,7 @@ func (s *Server) handleSegmentsPNG(w http.ResponseWriter, r *http.Request) {
 	if q.Get("mode") == "fill" {
 		vis = visualizeFill(res, partition, img)
 	} else {
-		vis = visualize(all, img)
+		vis = visualize(partition, all[len(partition):], img)
 	}
 	data, err := imageproc.EncodePNG(vis)
 	if err != nil {
@@ -638,7 +677,8 @@ func (s *Server) loadImageForSegments(w http.ResponseWriter, r *http.Request) (i
 }
 
 // visualize 在图像上叠加区域边界框（检索实际使用的区域，含引力辅助组合区域）。
-func visualize(regs []segment.MergedRegion, src image.Image) *image.RGBA {
+// 划分区域用红色标注，引力辅助组合区域用蓝色标注，合并"整图"辅助区域用绿色标注。
+func visualize(partition, aux []segment.MergedRegion, src image.Image) *image.RGBA {
 	b := src.Bounds()
 	dst := image.NewRGBA(b)
 	for y := b.Min.Y; y < b.Max.Y; y++ {
@@ -646,18 +686,28 @@ func visualize(regs []segment.MergedRegion, src image.Image) *image.RGBA {
 			dst.Set(x, y, src.At(x, y))
 		}
 	}
-	for _, reg := range regs {
-		box := reg.BBox
-		for x := box.Min.X; x < box.Max.X; x++ {
-			dst.Set(x, box.Min.Y, color.RGBA{255, 0, 0, 255})
-			dst.Set(x, box.Max.Y-1, color.RGBA{255, 0, 0, 255})
+	for _, reg := range partition {
+		drawBox(dst, reg.BBox, color.RGBA{255, 0, 0, 255})
+	}
+	for _, reg := range aux {
+		c := color.RGBA{0, 0, 255, 255}
+		if reg.Whole {
+			c = color.RGBA{0, 255, 0, 255}
 		}
-		for y := box.Min.Y; y < box.Max.Y; y++ {
-			dst.Set(box.Min.X, y, color.RGBA{255, 0, 0, 255})
-			dst.Set(box.Max.X-1, y, color.RGBA{255, 0, 0, 255})
-		}
+		drawBox(dst, reg.BBox, c)
 	}
 	return dst
+}
+
+func drawBox(dst *image.RGBA, box image.Rectangle, c color.Color) {
+	for x := box.Min.X; x < box.Max.X; x++ {
+		dst.Set(x, box.Min.Y, c)
+		dst.Set(x, box.Max.Y-1, c)
+	}
+	for y := box.Min.Y; y < box.Max.Y; y++ {
+		dst.Set(box.Min.X, y, c)
+		dst.Set(box.Max.X-1, y, c)
+	}
 }
 
 // buildRawToMerged 构建原始区域 ID → 合并区域 ID 的映射（基于 partition 的 Members）。
@@ -776,6 +826,16 @@ func gravityConfigFromQuery(q url.Values) segment.GravityConfig {
 	if v := q.Get("gravityAdditive"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			gc.Additive = b
+		}
+	}
+	if v := q.Get("gravityCombineFew"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			gc.CombineFew = n
+		}
+	}
+	if v := q.Get("gravityFrameRatio"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
+			gc.FrameRatio = f
 		}
 	}
 	return gc

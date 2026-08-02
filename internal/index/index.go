@@ -20,6 +20,9 @@ const (
 	segCount = 8
 	segBits  = 8
 	maxFlips = 2
+	// 整图辅助区域（绿框）探针允许更多翻转：文字干扰/背景色变化会使哈希漂移，
+	// 需要更大的召回半径；其余区域保持 ≤2 翻转以控制候选数量。
+	maxWholeFlips = 3
 )
 
 // RegionHash 表示一个待入索引的区域及其感知哈希。
@@ -33,6 +36,7 @@ type RegionHash struct {
 	NX, NY   float64    // 归一化质心（相对整幅图，0~1），用于布局一致性
 	Fill     float64    // 填充率：区域面积 / bbox 面积
 	Aspect   float64    // 区域宽高比
+	Global   float64    // 全局信息权重（整图辅助最高、组合区域次之，≥1）
 }
 
 // RegionEntry 索引中的一条区域记录。
@@ -47,6 +51,7 @@ type RegionEntry struct {
 	NX, NY   float64
 	Fill     float64
 	Aspect   float64
+	Global   float64 // 全局信息权重
 }
 
 // Index 倒排索引：64-bit 哈希拆成 8 个 8-bit 分段。
@@ -87,6 +92,7 @@ func (ix *Index) AddImage(imageID string, regions []RegionHash) {
 			NY:       r.NY,
 			Fill:     r.Fill,
 			Aspect:   r.Aspect,
+			Global:   r.Global,
 		})
 		for s := 0; s < segCount; s++ {
 			key := segment8(r.Hash, s)
@@ -118,12 +124,15 @@ type QueryRegion struct {
 	NX, NY float64
 	Fill   float64
 	Aspect float64
+	Global float64 // 全局信息权重
 }
 
 // RegionMatch 单个区域命中。
 type RegionMatch struct {
 	Entry RegionEntry
 	Dist  int
+	QI    int  // 匹配的查询区域下标
+	W     float64 // 该查询区域的 idf 权重（调试用）
 }
 
 // Match 图像级匹配结果。
@@ -198,18 +207,25 @@ func (ix *Index) Search(query []QueryRegion, opts SearchOptions) []Match {
 	for qi, q := range query {
 		seenPos := make(map[int]struct{})
 		byImg := make(map[string]float64)
-		// 颜色哈希与结构哈希各按 8 个分段做 ≤2 位翻转探针；
+		// 整图辅助区域（绿框）的哈希漂移较大（文字干扰/背景色变化），
+		// 探针允许更多翻转以召回，其余区域仍按 ≤2 翻转以控制候选量。
+		// 仅当填充率足够（真实完整图标而非稀疏骨架）时启用整图探针。
+		flips := maxFlips
+		if q.Global >= 2.5 && q.Fill >= 0.15 {
+			flips = maxWholeFlips
+		}
+		// 颜色哈希与结构哈希各按 8 个分段做翻转探针；
 		// 两者各有独立的倒排桶（Shapes），命中任一即成为该区域的候选。
 		for s := 0; s < segCount; s++ {
 			key := segment8(q.Hash, s)
-			for _, v := range variants(key) {
+			for _, v := range variantsN(key, flips) {
 				for _, pos := range ix.Segments[s][v] {
 					ix.considerHit(qi, q, pos, &seenPos, &byImg, imgPairs, opts)
 				}
 			}
 			if q.Shape != 0 {
 				key := segment8(q.Shape, s)
-				for _, v := range variants(key) {
+				for _, v := range variantsN(key, flips) {
 					for _, pos := range ix.Shapes[s][v] {
 						ix.considerHit(qi, q, pos, &seenPos, &byImg, imgPairs, opts)
 					}
@@ -226,11 +242,18 @@ func (ix *Index) Search(query []QueryRegion, opts SearchOptions) []Match {
 	idf := make([]float64, len(query))
 	totalW := 0.0
 	for qi := range query {
-		if df[qi] == 0 {
-			continue
+		// df=0 表示该查询区域在索引中无任何命中：仍按 df=1（最大稀有度）计入分母，
+		// 避免"只有一个罕见区域命中"导致 countRatio 虚高。
+		d := df[qi]
+		if d < 1 {
+			d = 1
 		}
-		base := math.Log(1+nImg) / math.Log(1+float64(df[qi]))
-		idf[qi] = base * math.Pow(float64(query[qi].Area), scoreAreaPow)
+		base := math.Log(1+nImg) / math.Log(1+float64(d))
+		g := query[qi].Global
+		if g < 1 {
+			g = 1
+		}
+		idf[qi] = base * math.Pow(float64(query[qi].Area), scoreAreaPow) * g
 		totalW += idf[qi]
 	}
 	if totalW <= 0 {
@@ -298,6 +321,8 @@ func (ix *Index) Search(query []QueryRegion, opts SearchOptions) []Match {
 			regMatches = append(regMatches, RegionMatch{
 				Entry: ix.Entries[cols[assign[ri]]],
 				Dist:  int(d),
+				QI:    qi,
+				W:     idf[qi],
 			})
 		}
 		if matchedW <= 0 {
@@ -341,12 +366,19 @@ func (ix *Index) considerHit(qi int, q QueryRegion, pos int, seen *map[int]struc
 	(*seen)[pos] = struct{}{}
 	e := ix.Entries[pos]
 	gd := phash.Hamming(q.Hash, e.Hash)
-	if gd > opts.MaxDist {
+	// 整图辅助区域（绿框）之间的匹配：文字干扰/背景色变化会使哈希显著漂移，
+	// 但整图结构仍应保留，故放宽距离门限。仅当查询区域与条目均为整图辅助区域
+	// 且填充率足够（真实完整图标，而非稀疏骨架）时生效。
+	limit := opts.MaxDist
+	if q.Global >= 2.5 && e.Global >= 2.5 && q.Fill >= 0.15 && e.Fill >= 0.15 && limit < 24 {
+		limit = 24
+	}
+	if gd > limit {
 		if q.Shape == 0 || e.Shape == 0 {
 			return
 		}
 		sd := phash.Hamming(q.Shape, e.Shape)
-		if sd > opts.MaxDist {
+		if sd > limit {
 			return
 		}
 	}
@@ -548,10 +580,21 @@ func orderedUniquePos(pairs []pairHit) []int {
 
 // variants 返回 8-bit 值翻转 ≤maxFlips 位后的全部变体。
 func variants(key uint8) []uint8 {
+	return variantsN(key, maxFlips)
+}
+
+// variantsN 返回 8-bit 值翻转 ≤n 位后的全部变体。
+func variantsN(key uint8, n int) []uint8 {
+	if n < 0 {
+		n = 0
+	}
+	if n > 8 {
+		n = 8
+	}
 	out := make([]uint8, 0, 128)
 	out = append(out, key)
-	// 用组合位掩码生成翻转 ≤maxFlips 位的变体
-	for flip := 1; flip <= maxFlips; flip++ {
+	// 用组合位掩码生成翻转 ≤n 位的变体
+	for flip := 1; flip <= n; flip++ {
 		comb(key, 0, uint8(flip), 0, &out)
 	}
 	return out

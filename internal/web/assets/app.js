@@ -481,8 +481,9 @@ $('#btn-seg').addEventListener('click', async () => {
     data.regions.forEach(r => {
       const div = document.createElement('div');
       div.className = 'rr';
+      const tag = r.whole ? '<span class="tag tag-whole">整图辅助</span>' : '';
       div.innerHTML =
-        '<span><span class="dot" style="background:' + esc(r.color) + '"></span>区域 #' + r.id + '</span>' +
+        '<span><span class="dot" style="background:' + esc(r.color) + '"></span>区域 #' + r.id + tag + '</span>' +
         '<span>面积 ' + r.area + ' · bbox ' + r.bbox.join(',') + '</span>';
       box.appendChild(div);
     });
@@ -515,7 +516,8 @@ segImg.addEventListener('mousemove', e => {
     const r = segRegionsById.get(id);
     showSegTip(e.clientX, e.clientY,
       '<span class="dot" style="background:' + esc(r.color) + '"></span>' +
-      '区域 #' + r.id + ' · 面积 ' + r.area + ' · bbox ' + r.bbox.join(','));
+      '区域 #' + r.id + (r.whole ? ' <span class="tag tag-whole">整图辅助</span>' : '') +
+      ' · 面积 ' + r.area + ' · bbox ' + r.bbox.join(','));
   } else {
     hideSegTip();
   }

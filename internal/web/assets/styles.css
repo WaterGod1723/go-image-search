@@ -383,6 +383,8 @@ input[type=range]::-moz-range-thumb {
 .seg-tip .dot { width: 10px; height: 10px; margin-right: 6px; }
 #seg-regions .rr { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; font-size: 13px; color: var(--text-dim, var(--text-faint)); }
 #seg-regions .rr + .rr { border-top: 1px solid var(--separator); }
+#seg-regions .tag { margin-left: 6px; padding: 1px 6px; border-radius: 3px; font-size: 11px; }
+#seg-regions .tag-whole { color: #fff; background: #22a022; }
 
 /* ---------- 底部标签栏 ---------- */
 .tabbar {
