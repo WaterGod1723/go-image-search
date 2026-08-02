@@ -1,6 +1,12 @@
 # go-image-search
 
-基于感知哈希（pHash）与图像区域划分的图片反向搜索工具。支持命令行检索与 iOS 风格 Web 界面。
+> Reverse image search using perceptual hash (pHash) and region segmentation — Go tool with CLI + web UI to find similar, cropped, thumbnail or duplicate images across a large local library. No external services.
+>
+> 基于感知哈希(pHash)与区域划分的图片反向搜索，纯 Go 实现。将图像分割为多个区域并分别哈希，结合骨架衍生图与相似区域合并，支持局部/裁剪/缩略图的相似检索，内置命令行与 iOS 风格 Web 界面，无需外部服务。
+
+Topics: `image-search` `perceptual-hash` `reverse-image-search` `phash` `image-processing` `go` `golang` `computer-vision` `image-retrieval`
+
+支持命令行检索与 iOS 风格 Web 界面。
 
 ![alt text](image.png)
 ![alt text](image-1.png)
