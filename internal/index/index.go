@@ -25,7 +25,8 @@ const (
 // RegionHash 表示一个待入索引的区域及其感知哈希。
 type RegionHash struct {
 	RegionID int
-	Hash     uint64
+	Hash     uint64 // 颜色感知哈希（对光照/颜色敏感）
+	Shape    uint64 // 颜色无关结构哈希（Otsu 二值掩码），颜色变化时仍稳定
 	Area     int
 	BBox     image.Rectangle
 	Color    color.RGBA // 区域平均色，用于颜色相似度加权
@@ -39,6 +40,7 @@ type RegionEntry struct {
 	ImageID  string
 	RegionID int
 	Hash     uint64
+	Shape    uint64
 	Area     int
 	BBox     image.Rectangle
 	Color    color.RGBA
@@ -50,6 +52,7 @@ type RegionEntry struct {
 // Index 倒排索引：64-bit 哈希拆成 8 个 8-bit 分段。
 type Index struct {
 	Segments [segCount]map[uint8][]int
+	Shapes   [segCount]map[uint8][]int
 	Entries  []RegionEntry
 	Images   map[string]bool
 }
@@ -62,6 +65,9 @@ func New() *Index {
 	for s := range ix.Segments {
 		ix.Segments[s] = make(map[uint8][]int)
 	}
+	for s := range ix.Shapes {
+		ix.Shapes[s] = make(map[uint8][]int)
+	}
 	return ix
 }
 
@@ -73,6 +79,7 @@ func (ix *Index) AddImage(imageID string, regions []RegionHash) {
 			ImageID:  imageID,
 			RegionID: r.RegionID,
 			Hash:     r.Hash,
+			Shape:    r.Shape,
 			Area:     r.Area,
 			BBox:     r.BBox,
 			Color:    r.Color,
@@ -84,6 +91,12 @@ func (ix *Index) AddImage(imageID string, regions []RegionHash) {
 		for s := 0; s < segCount; s++ {
 			key := segment8(r.Hash, s)
 			ix.Segments[s][key] = append(ix.Segments[s][key], pos)
+		}
+		if r.Shape != 0 {
+			for s := 0; s < segCount; s++ {
+				key := segment8(r.Shape, s)
+				ix.Shapes[s][key] = append(ix.Shapes[s][key], pos)
+			}
 		}
 	}
 	ix.Images[imageID] = true
@@ -99,6 +112,7 @@ func segment8(h uint64, s int) uint8 {
 // QueryRegion 查询图像的一个区域。
 type QueryRegion struct {
 	Hash   uint64
+	Shape  uint64
 	Area   int
 	Color  color.RGBA
 	NX, NY float64
@@ -151,7 +165,7 @@ func (ix *Index) Search(query []QueryRegion, opts SearchOptions) []Match {
 		opts.MaxDist = 16
 	}
 	if opts.ColorWeight < 0 {
-		opts.ColorWeight = 0.8
+		opts.ColorWeight = 0.1
 	}
 	if opts.ShapeWeight == 0 {
 		opts.ShapeWeight = 0.4
@@ -184,28 +198,21 @@ func (ix *Index) Search(query []QueryRegion, opts SearchOptions) []Match {
 	for qi, q := range query {
 		seenPos := make(map[int]struct{})
 		byImg := make(map[string]float64)
+		// 颜色哈希与结构哈希各按 8 个分段做 ≤2 位翻转探针；
+		// 两者各有独立的倒排桶（Shapes），命中任一即成为该区域的候选。
 		for s := 0; s < segCount; s++ {
 			key := segment8(q.Hash, s)
 			for _, v := range variants(key) {
 				for _, pos := range ix.Segments[s][v] {
-					if _, ok := seenPos[pos]; ok {
-						continue
+					ix.considerHit(qi, q, pos, &seenPos, &byImg, imgPairs, opts)
+				}
+			}
+			if q.Shape != 0 {
+				key := segment8(q.Shape, s)
+				for _, v := range variants(key) {
+					for _, pos := range ix.Shapes[s][v] {
+						ix.considerHit(qi, q, pos, &seenPos, &byImg, imgPairs, opts)
 					}
-					seenPos[pos] = struct{}{}
-					e := ix.Entries[pos]
-					gd := phash.Hamming(q.Hash, e.Hash)
-					if gd > opts.MaxDist {
-						continue
-					}
-					d := pairDist(q, e, opts)
-					if d >= 64 {
-						// 相似度过低（如哈希接近但颜色/形状差异巨大）不视为真实候选
-						continue
-					}
-					if prev, ok := byImg[e.ImageID]; !ok || d < prev {
-						byImg[e.ImageID] = d
-					}
-					imgPairs[e.ImageID] = append(imgPairs[e.ImageID], pairHit{qi: qi, pos: pos, d: d})
 				}
 			}
 		}
@@ -296,9 +303,9 @@ func (ix *Index) Search(query []QueryRegion, opts SearchOptions) []Match {
 		if matchedW <= 0 {
 			continue
 		}
-	avgSim := scoreSum / matchedW
-	countRatio := matchedW / totalW
-	score := avgSim * countRatio
+		avgSim := scoreSum / matchedW
+		countRatio := matchedW / totalW
+		score := avgSim * countRatio
 		if layoutW > 0 && len(qCen) > 1 {
 			ls := layoutScore(qCen, eCen)
 			score *= 1 + layoutW*(ls-1)
@@ -315,21 +322,124 @@ func (ix *Index) Search(query []QueryRegion, opts SearchOptions) []Match {
 		if matches[i].Score != matches[j].Score {
 			return matches[i].Score > matches[j].Score
 		}
-		return matches[i].CoverRatio > matches[j].CoverRatio
+		if matches[i].CoverRatio != matches[j].CoverRatio {
+			return matches[i].CoverRatio > matches[j].CoverRatio
+		}
+		return matches[i].ImageID < matches[j].ImageID
 	})
 	return matches
 }
 
+// considerHit 处理一次探针命中：若 (qi,pos) 哈希或结构的汉明距离在门槛内，
+// 则记录候选。结构哈希与颜色哈希取较近者作为基础距离门限。
+// 颜色哈希与结构哈希各按 8 个分段做 ≤2 位翻转探针；二者独立倒排，命中任一
+// 即为该区域的候选。颜色变化导致颜色哈希漂移时，仍可按稳定结构召回。
+func (ix *Index) considerHit(qi int, q QueryRegion, pos int, seen *map[int]struct{}, byImg *map[string]float64, imgPairs map[string][]pairHit, opts SearchOptions) {
+	if _, ok := (*seen)[pos]; ok {
+		return
+	}
+	(*seen)[pos] = struct{}{}
+	e := ix.Entries[pos]
+	gd := phash.Hamming(q.Hash, e.Hash)
+	if gd > opts.MaxDist {
+		if q.Shape == 0 || e.Shape == 0 {
+			return
+		}
+		sd := phash.Hamming(q.Shape, e.Shape)
+		if sd > opts.MaxDist {
+			return
+		}
+	}
+	d := pairDist(q, e, opts)
+	if d >= 64 {
+		return
+	}
+	if prev, ok := (*byImg)[e.ImageID]; !ok || d < prev {
+		(*byImg)[e.ImageID] = d
+	}
+	imgPairs[e.ImageID] = append(imgPairs[e.ImageID], pairHit{qi: qi, pos: pos, d: d})
+}
+
+// rankLess 是确定性的图像排序比较：得分降序，其次覆盖比降序，最后按图像 ID 升序。
+// 这里特意在最后用 ImageID 决胜，避免 map 迭代顺序导致的非确定排序。
+func rankLess(a, b Match) bool {
+	if a.Score != b.Score {
+		return a.Score > b.Score
+	}
+	if a.CoverRatio != b.CoverRatio {
+		return a.CoverRatio > b.CoverRatio
+	}
+	return a.ImageID < b.ImageID
+}
+
+// SearchMulti 对多组查询区域（原图及其衍生图）依次检索并按图像合并结果。
+// 每张图像取各衍生图检索得分中的最高分，并统计被多少个衍生图命中；
+// 被多个衍生图同时命中的图像获得小幅加成（多视角确认更可信）。
+func (ix *Index) SearchMulti(querySets [][]QueryRegion, opts SearchOptions) []Match {
+	const multiBoost = 0.08
+	best := make(map[string]Match)
+	hits := make(map[string]int)
+	for _, qs := range querySets {
+		if len(qs) == 0 {
+			continue
+		}
+		for _, m := range ix.Search(qs, opts) {
+			if prev, ok := best[m.ImageID]; !ok || m.Score > prev.Score {
+				best[m.ImageID] = m
+			}
+			hits[m.ImageID]++
+		}
+	}
+	out := make([]Match, 0, len(best))
+	for id, m := range best {
+		if k := hits[id]; k > 1 {
+			m.Score *= 1 + multiBoost*float64(k-1)
+		}
+		out = append(out, m)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return rankLess(out[i], out[j]) })
+	return out
+}
+
 // pairDist 组合哈希、颜色、形状三个维度的相似度距离。
+// 哈希维度取“颜色哈希”与“结构哈希”中较近者——当颜色变化导致颜色哈希
+// 漂移时，仍可用稳定的结构哈希度量形状相似，从而容忍如 TEST8 的颜色变动。
 func pairDist(q QueryRegion, e RegionEntry, opts SearchOptions) float64 {
-	d := float64(phash.Hamming(q.Hash, e.Hash))
+	hd := phash.Hamming(q.Hash, e.Hash)
+	if q.Shape != 0 && e.Shape != 0 {
+		if sd := phash.Hamming(q.Shape, e.Shape); sd < hd {
+			hd = sd
+		}
+	}
+	d := float64(hd)
 	if opts.ColorWeight > 0 {
-		d += opts.ColorWeight * colorDist01(q.Color, e.Color) * 64
+		d += opts.ColorWeight * colorWeight01(q, e) * colorDist01(q.Color, e.Color) * 64
 	}
 	if opts.ShapeWeight > 0 {
 		d += opts.ShapeWeight * shapeDist01(q, e) * 64
 	}
 	return d
+}
+
+// colorWeight01 对大面积、高填充的背景类区域降低颜色权重。
+// 这类区域常是整块底色/底图，颜色多随主题而变化（如 TEST2/图标卡片），
+// 而其形状又已被结构哈希刻画；高填充实心块的颜色信息价值低，
+// 予以衰减，保留颜色用于匹配结构鲜明的图标区域。
+func colorWeight01(q QueryRegion, e RegionEntry) float64 {
+	return fillScale(q.Fill) * fillScale(e.Fill)
+}
+
+// fillScale 把填充率映射为颜色权重系数：低填充（轮廓/图形）保持权重，
+// 高填充（实心大块）线性衰减到下限。
+func fillScale(fill float64) float64 {
+	const lo, hi, minW = 0.3, 0.8, 0.15
+	if fill <= 0 {
+		return 1
+	}
+	if fill >= hi {
+		return minW
+	}
+	return 1 - (1-minW)*((fill-lo)/(hi-lo))
 }
 
 // colorDist01 返回两个颜色的归一化 RGB 距离 [0,1]。

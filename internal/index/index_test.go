@@ -48,6 +48,45 @@ func TestIndexSearch(t *testing.T) {
 	}
 }
 
+// TestSearchMultiMergesVariants 验证 SearchMulti 合并多组衍生图检索结果：
+// 某图像仅被某一个衍生图命中时也能被返回（取最高分）。
+func TestSearchMultiMergesVariants(t *testing.T) {
+	ix := New()
+	ix.AddImage("a.png", []RegionHash{
+		mkRegionHash(1, 100, image.Rect(0, 0, 10, 10), color.RGBA{255, 0, 0, 255}),
+	})
+	ix.AddImage("b.png", []RegionHash{
+		mkRegionHash(1, 100, image.Rect(0, 0, 10, 10), color.RGBA{0, 0, 255, 255}),
+	})
+
+	ha := mkRegionHash(9, 100, image.Rect(0, 0, 10, 10), color.RGBA{255, 0, 0, 255}).Hash
+	hNb := mkRegionHash(9, 100, image.Rect(0, 0, 10, 10), color.RGBA{0, 0, 255, 255}).Hash
+
+	// 第一组（原图）：仅命中 a；第二组（衍生图）：命中 a 与 b。
+	sets := [][]QueryRegion{
+		{{Hash: ha, Area: 100}},
+		{{Hash: ha, Area: 100}, {Hash: hNb, Area: 100}},
+	}
+
+	res := ix.SearchMulti(sets, SearchOptions{MaxDist: 12})
+	if len(res) == 0 {
+		t.Fatal("SearchMulti 无结果")
+	}
+	found := map[string]float64{}
+	for _, m := range res {
+		found[m.ImageID] = m.Score
+	}
+	if _, ok := found["a.png"]; !ok {
+		t.Fatal("应命中 a.png")
+	}
+	if _, ok := found["b.png"]; !ok {
+		t.Fatal("衍生图命中 b.png 应被返回")
+	}
+	if found["a.png"] <= 0 {
+		t.Fatal("a.png 得分异常")
+	}
+}
+
 func TestSaveLoadRoundtrip(t *testing.T) {
 	ix := New()
 	ix.AddImage("a.png", []RegionHash{

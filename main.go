@@ -83,8 +83,9 @@ func hashImage(img image.Image, cfg segment.Config, merge segment.MergeConfig) (
 		if crop == nil {
 			continue
 		}
+		shape := phash.Hash(imageproc.StructuralMask(crop))
 		infos = append(infos, segment.RegionInfo{
-			ID: reg.ID, Hash: phash.Hash(crop),
+			ID: reg.ID, Hash: phash.Hash(crop), Shape: shape,
 			Area: reg.Area, Color: reg.MeanColor, BBox: reg.BBox,
 		})
 	}
@@ -107,6 +108,7 @@ func hashImage(img image.Image, cfg segment.Config, merge segment.MergeConfig) (
 		hashes = append(hashes, index.RegionHash{
 			RegionID: m.ID,
 			Hash:     m.Hash,
+			Shape:    m.Shape,
 			Area:     m.Area,
 			BBox:     m.BBox,
 			Color:    m.MeanColor,
@@ -148,14 +150,18 @@ func runBuild(args []string) {
 			fmt.Fprintf(os.Stderr, "[跳过] %s: %v\n", f, err)
 			continue
 		}
-		hashes, err := hashImage(img, *cfg, *mc)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[跳过] %s: %v\n", f, err)
-			continue
-		}
 		id := strings.ReplaceAll(f, "\\", "/")
-		ix.AddImage(id, hashes)
-		fmt.Printf("[%d/%d] %s (%d 区域)\n", i+1, len(files), id, len(hashes))
+		total := 0
+		// 原图 + 骨架图分别入索引，让查询的任一衍生图都能命中对应表示。
+		for _, v := range imageproc.QueryVariants(img) {
+			hashes, err := hashImage(v, *cfg, *mc)
+			if err != nil {
+				continue
+			}
+			ix.AddImage(id, hashes)
+			total += len(hashes)
+		}
+		fmt.Printf("[%d/%d] %s (%d 区域, 含骨架)\n", i+1, len(files), id, total)
 	}
 
 	if err := ix.Save(*out); err != nil {
@@ -171,7 +177,7 @@ func runQuery(args []string) {
 	q := fs.String("q", "", "查询图像")
 	top := fs.Int("top", 5, "返回 top-N")
 	maxDist := fs.Int("maxdist", 12, "区域哈希最大汉明距离")
-	colorWeight := fs.Float64("color-weight", 0.8, "颜色相似度权重(0关闭)")
+	colorWeight := fs.Float64("color-weight", 0.1, "颜色相似度权重(0关闭)")
 	cfg := buildFlagSet(fs)
 	mc := mergeFlagSet(fs)
 	fs.Parse(args)
@@ -190,22 +196,30 @@ func runQuery(args []string) {
 		fmt.Fprintf(os.Stderr, "加载查询图像失败: %v\n", err)
 		os.Exit(1)
 	}
-	hashes, err := hashImage(img, *cfg, *mc)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "查询图像处理失败: %v\n", err)
-		os.Exit(1)
+	// 对查询图像生成原图 + 骨架图两张衍生图分别检索，
+	// 任一衍生图与索引图像相似即认为该图像相似。
+	querySets := make([][]index.QueryRegion, 0, 2)
+	for _, v := range imageproc.QueryVariants(img) {
+		hashes, err := hashImage(v, *cfg, *mc)
+		if err != nil {
+			continue
+		}
+		qs := make([]index.QueryRegion, 0, len(hashes))
+		for _, h := range hashes {
+			qs = append(qs, index.QueryRegion{
+				Hash: h.Hash, Shape: h.Shape, Area: h.Area, Color: h.Color,
+				NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect,
+			})
+		}
+		querySets = append(querySets, qs)
 	}
+	matches := ix.SearchMulti(querySets, index.SearchOptions{MaxDist: *maxDist, ColorWeight: *colorWeight})
 
-	query := make([]index.QueryRegion, 0, len(hashes))
-	for _, h := range hashes {
-		query = append(query, index.QueryRegion{
-			Hash: h.Hash, Area: h.Area, Color: h.Color,
-			NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect,
-		})
+	totalRegions := 0
+	for _, qs := range querySets {
+		totalRegions += len(qs)
 	}
-	matches := ix.Search(query, index.SearchOptions{MaxDist: *maxDist, ColorWeight: *colorWeight})
-
-	fmt.Printf("查询区域数: %d\n", len(query))
+	fmt.Printf("衍生图像数: %d（原图+骨架）, 查询区域总数: %d\n", len(querySets), totalRegions)
 	if len(matches) == 0 {
 		fmt.Println("无匹配结果")
 		return

@@ -134,8 +134,9 @@ func hashImage(img image.Image, cfg segment.Config, merge segment.MergeConfig) (
 		if crop == nil {
 			continue
 		}
+		shape := phash.Hash(imageproc.StructuralMask(crop))
 		infos = append(infos, segment.RegionInfo{
-			ID: reg.ID, Hash: phash.Hash(crop),
+			ID: reg.ID, Hash: phash.Hash(crop), Shape: shape,
 			Area: reg.Area, Color: reg.MeanColor, BBox: reg.BBox,
 		})
 	}
@@ -158,6 +159,7 @@ func hashImage(img image.Image, cfg segment.Config, merge segment.MergeConfig) (
 		hashes = append(hashes, index.RegionHash{
 			RegionID: m.ID,
 			Hash:     m.Hash,
+			Shape:    m.Shape,
 			Area:     m.Area,
 			BBox:     m.BBox,
 			Color:    m.MeanColor,
@@ -287,21 +289,23 @@ func (s *Server) runBuild(job *buildJob, req buildRequest) {
 	ix := index.New()
 	job.Total = len(files)
 	for i, f := range files {
-		job.Current = f
-		job.Done = i + 1
-		img, err := imageproc.Load(f)
-		if err != nil {
-			s.logger.Printf("跳过 %s: %v", f, err)
-			continue
+			job.Current = f
+			job.Done = i + 1
+			img, err := imageproc.Load(f)
+			if err != nil {
+				s.logger.Printf("跳过 %s: %v", f, err)
+				continue
+			}
+			id := strings.ReplaceAll(f, "\\", "/")
+			// 原图 + 骨架图分别入索引，让查询的任一衍生图都能命中对应表示。
+			for _, v := range imageproc.QueryVariants(img) {
+				hashes, err := hashImage(v, cfg, mc)
+				if err != nil {
+					continue
+				}
+				ix.AddImage(id, hashes)
+			}
 		}
-		hashes, err := hashImage(img, cfg, mc)
-		if err != nil {
-			s.logger.Printf("跳过 %s: %v", f, err)
-			continue
-		}
-		id := strings.ReplaceAll(f, "\\", "/")
-		ix.AddImage(id, hashes)
-	}
 
 	if err := ix.Save(req.Out); err != nil {
 		s.failBuild(job, err)
@@ -393,17 +397,22 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := segment.DefaultConfig()
-	hashes, err := hashImage(img, cfg, segment.DefaultMergeConfig())
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	query := make([]index.QueryRegion, 0, len(hashes))
-	for _, h := range hashes {
-		query = append(query, index.QueryRegion{
-			Hash: h.Hash, Area: h.Area, Color: h.Color,
-			NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect,
-		})
+	// 对查询图像生成原图 + 骨架图两张衍生图分别检索，
+	// 任一衍生图与索引图像相似即认为该图像相似。
+	querySets := make([][]index.QueryRegion, 0, 2)
+	for _, v := range imageproc.QueryVariants(img) {
+		hashes, err := hashImage(v, cfg, segment.DefaultMergeConfig())
+		if err != nil {
+			continue
+		}
+		qs := make([]index.QueryRegion, 0, len(hashes))
+		for _, h := range hashes {
+			qs = append(qs, index.QueryRegion{
+				Hash: h.Hash, Shape: h.Shape, Area: h.Area, Color: h.Color,
+				NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect,
+			})
+		}
+		querySets = append(querySets, qs)
 	}
 	top := atoiDefault(r.FormValue("top"), 5)
 	if top <= 0 {
@@ -412,15 +421,19 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	maxDist := atoiDefault(r.FormValue("maxdist"), 12)
 	colorWeight := parseColorWeight(r.FormValue("colorWeight"))
 
-	matches := ix.Search(query, index.SearchOptions{MaxDist: maxDist, ColorWeight: colorWeight})
+	matches := ix.SearchMulti(querySets, index.SearchOptions{MaxDist: maxDist, ColorWeight: colorWeight})
 	if len(matches) > top {
 		matches = matches[:top]
 	}
 
+	totalRegions := 0
+	for _, qs := range querySets {
+		totalRegions += len(qs)
+	}
 	resp := struct {
 		Regions int         `json:"regions"`
 		Matches []matchJSON `json:"matches"`
-	}{Regions: len(query)}
+	}{Regions: totalRegions}
 	for _, m := range matches {
 		mm := matchJSON{
 			ImageID: m.ImageID,
@@ -614,11 +627,11 @@ func atoiDefault(s string, def int) int {
 
 func parseColorWeight(s string) float64 {
 	if s == "" {
-		return 0.8
+		return 0.1
 	}
 	f, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		return 0.8
+		return 0.1
 	}
 	return f
 }

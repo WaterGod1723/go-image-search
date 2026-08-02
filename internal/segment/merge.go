@@ -34,6 +34,7 @@ func DefaultMergeConfig() MergeConfig {
 type RegionInfo struct {
 	ID    int
 	Hash  uint64
+	Shape uint64 // 颜色无关结构哈希（Otsu 二值掩码），合并时传递
 	Area  int
 	Color color.RGBA
 	BBox  image.Rectangle
@@ -44,6 +45,7 @@ type MergedRegion struct {
 	ID        int             // 输出区域 ID（重新编号，1 起）
 	Members   []int           // 构成该区域的原始区域 ID（组合区域为多个）
 	Hash      uint64          // 组合区域裁剪块的感知哈希
+	Shape     uint64          // 组合区域裁剪块的结构哈希
 	Area      int             // 面积（组合区域为成员面积之和）
 	BBox      image.Rectangle // 组合区域为成员 bbox 之并
 	MeanColor color.RGBA      // 组合区域为面积加权平均色
@@ -60,7 +62,7 @@ func MergeSimilar(src image.Image, res *Result, infos []RegionInfo, cfg MergeCon
 		for i, in := range infos {
 			out = append(out, MergedRegion{
 				ID: i + 1, Members: []int{in.ID},
-				Hash: in.Hash, Area: in.Area, BBox: in.BBox, MeanColor: in.Color,
+				Hash: in.Hash, Shape: in.Shape, Area: in.Area, BBox: in.BBox, MeanColor: in.Color,
 			})
 		}
 		return out
@@ -104,8 +106,18 @@ func MergeSimilar(src image.Image, res *Result, infos []RegionInfo, cfg MergeCon
 		}
 	}
 	if cfg.GapFactor <= 0 {
-		for a, nb := range edges {
-			for b := range nb {
+		var keys []int
+		for a := range edges {
+			keys = append(keys, a)
+		}
+		sort.Ints(keys)
+		for _, a := range keys {
+			var nb []int
+			for b := range edges[a] {
+				nb = append(nb, b)
+			}
+			sort.Ints(nb)
+			for _, b := range nb {
 				consider(a, b)
 			}
 		}
@@ -114,6 +126,7 @@ func MergeSimilar(src image.Image, res *Result, infos []RegionInfo, cfg MergeCon
 		for id := range byID {
 			ids = append(ids, id)
 		}
+		sort.Ints(ids)
 		for i := 0; i < len(ids); i++ {
 			for j := i + 1; j < len(ids); j++ {
 				consider(ids[i], ids[j])
@@ -144,7 +157,7 @@ func MergeSimilar(src image.Image, res *Result, infos []RegionInfo, cfg MergeCon
 		for i, in := range infos {
 			out = append(out, MergedRegion{
 				ID: i + 1, Members: []int{in.ID},
-				Hash: in.Hash, Area: in.Area, BBox: in.BBox, MeanColor: in.Color,
+				Hash: in.Hash, Shape: in.Shape, Area: in.Area, BBox: in.BBox, MeanColor: in.Color,
 			})
 		}
 		id := len(infos)
@@ -172,7 +185,7 @@ func MergeSimilar(src image.Image, res *Result, infos []RegionInfo, cfg MergeCon
 			in := byID[members[0]]
 			out = append(out, MergedRegion{
 				ID: id, Members: members,
-				Hash: in.Hash, Area: in.Area, BBox: in.BBox, MeanColor: in.Color,
+				Hash: in.Hash, Shape: in.Shape, Area: in.Area, BBox: in.BBox, MeanColor: in.Color,
 			})
 			continue
 		}
@@ -208,8 +221,63 @@ func mergeCluster(src image.Image, members []int, byID map[int]RegionInfo) Merge
 	}
 	if crop := cropRect(src, bbox); crop != nil {
 		mr.Hash = phash.Hash(crop)
+		mr.Shape = phash.Hash(structuralMask(crop))
 	}
 	return mr
+}
+
+// structuralMask 生成颜色无关的结构掩码（灰度 → Otsu 二值，前景为黑）。
+// 与 imageproc.StructuralMask 语义一致，供合并区域计算结构哈希使用，
+// 避免 segment 引入对 imageproc 的依赖。
+func structuralMask(src image.Image) *image.Gray {
+	b := src.Bounds()
+	g := image.NewGray(b)
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			g.Set(x, y, color.GrayModel.Convert(src.At(x, y)))
+		}
+	}
+	hist := make([]int, 256)
+	for _, v := range g.Pix {
+		hist[v]++
+	}
+	total := len(g.Pix)
+	if total == 0 {
+		return g
+	}
+	sum := 0
+	for i, n := range hist {
+		sum += i * n
+	}
+	sumB, wB := 0, 0
+	bestThr, bestVar := uint8(0), float64(-1)
+	for t := 0; t < 256; t++ {
+		wB += hist[t]
+		if wB == 0 {
+			continue
+		}
+		wF := total - wB
+		if wF == 0 {
+			break
+		}
+		sumB += t * hist[t]
+		mB := float64(sumB) / float64(wB)
+		mF := float64(sum-sumB) / float64(wF)
+		between := float64(wB) * float64(wF) * (mB - mF) * (mB - mF)
+		if between >= bestVar {
+			bestVar = between
+			bestThr = uint8(t)
+		}
+	}
+	out := image.NewGray(b)
+	for i, v := range g.Pix {
+		if v < bestThr {
+			out.Pix[i] = 0
+		} else {
+			out.Pix[i] = 255
+		}
+	}
+	return out
 }
 
 // regionAdjacency 从标签图提取相邻区域对（无向、去重）。

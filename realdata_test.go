@@ -38,11 +38,14 @@ func TestRealDatasetSearch(t *testing.T) {
 		if err != nil {
 			t.Fatalf("加载索引图片失败 %s: %v", f, err)
 		}
-		hashes, err := hashImage(img, cfg, segment.DefaultMergeConfig())
-		if err != nil {
-			t.Fatalf("索引图片处理失败 %s: %v", f, err)
+		// 原图 + 骨架图分别入索引（与构建一致）。
+		for _, v := range imageproc.QueryVariants(img) {
+			hashes, err := hashImage(v, cfg, segment.DefaultMergeConfig())
+			if err != nil {
+				t.Fatalf("索引图片处理失败 %s: %v", f, err)
+			}
+			ix.AddImage(f, hashes)
 		}
-		ix.AddImage(f, hashes)
 	}
 
 	qfiles, err := filepath.Glob(filepath.Join(qDir, "*.png"))
@@ -66,19 +69,24 @@ func TestRealDatasetSearch(t *testing.T) {
 			t.Errorf("[%s] 加载失败: %v", filepath.Base(qf), err)
 			continue
 		}
-		hashes, err := hashImage(img, cfg, segment.DefaultMergeConfig())
-		if err != nil {
-			t.Errorf("[%s] 处理失败: %v", filepath.Base(qf), err)
-			continue
-		}
-		var query []index.QueryRegion
-		for _, h := range hashes {
-			query = append(query, index.QueryRegion{
-				Hash: h.Hash, Area: h.Area, Color: h.Color,
+		// 生成 原图 + 骨架图 两组查询区域，用 SearchMulti 合并（与查询流程一致）。
+		querySets := make([][]index.QueryRegion, 0, 2)
+		for _, v := range imageproc.QueryVariants(img) {
+			hashes, err := hashImage(v, cfg, segment.DefaultMergeConfig())
+			if err != nil {
+				t.Errorf("[%s] 处理失败: %v", filepath.Base(qf), err)
+				continue
+			}
+			var qs []index.QueryRegion
+			for _, h := range hashes {
+qs = append(qs, index.QueryRegion{
+				Hash: h.Hash, Shape: h.Shape, Area: h.Area, Color: h.Color,
 				NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect,
 			})
+			}
+			querySets = append(querySets, qs)
 		}
-		matches := ix.Search(query, index.SearchOptions{MaxDist: 12, ColorWeight: 0.8})
+		matches := ix.SearchMulti(querySets, index.SearchOptions{MaxDist: 12, ColorWeight: 0.1})
 
 		gotRank, gotScore := -1, 0.0
 		for i, m := range matches {
