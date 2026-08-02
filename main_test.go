@@ -90,7 +90,7 @@ func TestEndToEndSearch(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		hashes, err := hashImage(img, cfg, segment.DefaultMergeConfig())
+		hashes, err := hashImage(img, cfg, segment.DefaultMergeConfig(), segment.GravityConfig{Enabled: false})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -102,7 +102,7 @@ func TestEndToEndSearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	qhashes, err := hashImage(qimg, cfg, segment.DefaultMergeConfig())
+	qhashes, err := hashImage(qimg, cfg, segment.DefaultMergeConfig(), segment.GravityConfig{Enabled: false})
 	if err != nil {
 		t.Fatal(err)
 	}

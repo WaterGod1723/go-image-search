@@ -39,8 +39,10 @@ func TestRealDatasetSearch(t *testing.T) {
 			t.Fatalf("加载索引图片失败 %s: %v", f, err)
 		}
 		// 原图 + 骨架图分别入索引（与构建一致）。
+		// 索引阶段启用引力聚合：区域过多时聚合出辅助组合区域一并入索引，
+		// 与查询阶段的辅助查询区域对应，提升碎片化图像的召回。
 		for _, v := range imageproc.QueryVariants(img) {
-			hashes, err := hashImage(v, cfg, segment.DefaultMergeConfig())
+			hashes, err := hashImage(v, cfg, segment.DefaultMergeConfig(), segment.DefaultGravityConfig())
 			if err != nil {
 				t.Fatalf("索引图片处理失败 %s: %v", f, err)
 			}
@@ -70,19 +72,20 @@ func TestRealDatasetSearch(t *testing.T) {
 			continue
 		}
 		// 生成 原图 + 骨架图 两组查询区域，用 SearchMulti 合并（与查询流程一致）。
+		// 查询阶段启用引力聚合：区域过多时按引力模型聚合出辅助组合区域参与检索。
 		querySets := make([][]index.QueryRegion, 0, 2)
 		for _, v := range imageproc.QueryVariants(img) {
-			hashes, err := hashImage(v, cfg, segment.DefaultMergeConfig())
+			hashes, err := hashImage(v, cfg, segment.DefaultMergeConfig(), segment.DefaultGravityConfig())
 			if err != nil {
 				t.Errorf("[%s] 处理失败: %v", filepath.Base(qf), err)
 				continue
 			}
 			var qs []index.QueryRegion
 			for _, h := range hashes {
-qs = append(qs, index.QueryRegion{
-				Hash: h.Hash, Shape: h.Shape, Area: h.Area, Color: h.Color,
-				NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect,
-			})
+				qs = append(qs, index.QueryRegion{
+					Hash: h.Hash, Shape: h.Shape, Area: h.Area, Color: h.Color,
+					NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect,
+				})
 			}
 			querySets = append(querySets, qs)
 		}
