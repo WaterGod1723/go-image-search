@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>图片搜索</title>
+<link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+
+<header class="nav">
+  <h1 id="nav-title">搜索</h1>
+  <p id="nav-sub">按图像内容检索图片库</p>
+</header>
+
+<main id="pages">
+
+  <!-- ============ 搜索 ============ -->
+  <section id="tab-search" class="page active">
+    <div class="card">
+      <div id="dropzone" class="dropzone">
+        <div id="dz-placeholder" class="dz-placeholder">
+          <div class="dz-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5-8 8"/></svg>
+          </div>
+          <p>点击选择查询图片</p>
+          <span>或拖拽到此处</span>
+        </div>
+        <img id="query-preview" alt="查询图片预览">
+        <p id="query-name" class="query-name"></p>
+      </div>
+      <input type="file" id="query-input" accept="image/*" hidden>
+    </div>
+
+    <div class="card cell-group">
+      <div class="cell">
+        <label>返回数量</label>
+        <div class="seg" id="seg-top">
+          <button data-val="3">3</button>
+          <button data-val="5" class="active">5</button>
+          <button data-val="10">10</button>
+          <button data-val="20">20</button>
+        </div>
+      </div>
+      <div class="cell">
+        <label>颜色权重</label>
+        <span class="value" id="color-val">0.80</span>
+      </div>
+      <div class="cell slider-cell">
+        <input type="range" id="color-range" min="0" max="1" step="0.05" value="0.8">
+      </div>
+      <div class="cell">
+        <label>最大距离</label>
+        <span class="value" id="maxdist-val">12</span>
+      </div>
+      <div class="cell slider-cell">
+        <input type="range" id="maxdist-range" min="4" max="32" step="1" value="12">
+      </div>
+    </div>
+
+    <button id="btn-search" class="btn" disabled>开始搜索</button>
+
+    <div id="search-busy" class="busy" hidden><div class="spinner"></div><span>正在检索…</span></div>
+
+    <div id="results-empty" class="empty" hidden>
+      <p>暂无结果</p>
+      <span>选择一张图片开始搜索</span>
+    </div>
+    <div id="results" class="results"></div>
+  </section>
+
+  <!-- ============ 图库 ============ -->
+  <section id="tab-library" class="page">
+    <div id="lib-empty" class="empty" hidden>
+      <p>图库为空</p>
+      <span>先在“索引”页构建索引</span>
+    </div>
+    <div id="lib-grid" class="grid"></div>
+  </section>
+
+  <!-- ============ 索引 ============ -->
+  <section id="tab-index" class="page">
+    <div class="card cell-group">
+      <div class="cell">
+        <label>图像库目录</label>
+        <input id="cfg-dir" class="field field-right" placeholder="例如 D:\photos">
+      </div>
+      <div class="cell">
+        <label>索引输出路径</label>
+        <input id="cfg-out" class="field field-right" placeholder="index.bin">
+      </div>
+    </div>
+
+    <div class="section-title">分段参数（可选）</div>
+    <div class="card cell-group">
+      <div class="cell">
+        <label>阈值分位数</label>
+        <input id="cfg-thr" class="field field-right" type="number" step="0.05" min="0.01" max="1" value="0.85">
+      </div>
+      <div class="cell">
+        <label>阈值因子</label>
+        <input id="cfg-factor" class="field field-right" type="number" step="0.1" value="1.0">
+      </div>
+      <div class="cell">
+        <label>最小区域比例</label>
+        <input id="cfg-minarea" class="field field-right" type="number" step="0.0001" value="0.0006">
+      </div>
+      <div class="cell">
+        <label>中值滤波核</label>
+        <input id="cfg-median" class="field field-right" type="number" step="1" min="0" value="3">
+      </div>
+      <div class="cell">
+        <label>连通性</label>
+        <div class="seg" id="seg-conn">
+          <button data-val="4" class="active">4</button>
+          <button data-val="8">8</button>
+        </div>
+      </div>
+    </div>
+
+    <button id="btn-build" class="btn">构建索引</button>
+
+    <div id="build-card" class="card build-card" hidden>
+      <div class="build-row">
+        <span id="build-label">准备中…</span>
+        <span id="build-pct" class="value">0%</span>
+      </div>
+      <div class="progress"><div id="build-bar" style="width:0%"></div></div>
+      <p id="build-file" class="build-file"></p>
+    </div>
+
+    <div class="section-title">索引状态</div>
+    <div class="card cell-group">
+      <div class="cell"><label>加载状态</label><span id="st-load" class="value">-</span></div>
+      <div class="cell"><label>图像数量</label><span id="st-images" class="value">-</span></div>
+      <div class="cell"><label>区域数量</label><span id="st-regions" class="value">-</span></div>
+      <div class="cell"><label>索引路径</label><span id="st-index" class="value value-wide">-</span></div>
+      <div class="cell"><label>库根目录</label><span id="st-root" class="value value-wide">-</span></div>
+    </div>
+
+    <div class="section-title">加载已有索引</div>
+    <div class="card cell-group">
+      <div class="cell">
+        <label>索引文件</label>
+        <input id="cfg-load" class="field field-right" placeholder="index.bin">
+      </div>
+    </div>
+    <button id="btn-load" class="btn secondary">加载索引</button>
+  </section>
+
+  <!-- ============ 调试 ============ -->
+  <section id="tab-debug" class="page">
+    <div class="card cell-group">
+      <div class="cell">
+        <label>图像路径</label>
+        <input id="seg-path" class="field field-right" placeholder="D:\photos\a.png">
+      </div>
+    </div>
+
+    <div class="section-title">分段参数（可选）</div>
+    <div class="card cell-group">
+      <div class="cell">
+        <label>阈值分位数</label>
+        <input id="seg-thr" class="field field-right" type="number" step="0.05" min="0.01" max="1" value="0.85">
+      </div>
+      <div class="cell">
+        <label>中值滤波核</label>
+        <input id="seg-median" class="field field-right" type="number" step="1" min="0" value="3">
+      </div>
+      <div class="cell">
+        <label>连通性</label>
+        <div class="seg" id="seg-conn2">
+          <button data-val="4" class="active">4</button>
+          <button data-val="8">8</button>
+        </div>
+      </div>
+    </div>
+
+    <button id="btn-seg" class="btn">分析区域</button>
+
+    <div id="seg-busy" class="busy" hidden><div class="spinner"></div><span>正在分析…</span></div>
+    <p id="seg-info" class="seg-info"></p>
+    <img id="seg-img" class="seg-img" alt="区域可视化" hidden>
+    <div id="seg-regions" class="card cell-group" hidden></div>
+  </section>
+
+</main>
+
+<nav class="tabbar">
+  <button class="tab active" data-tab="search">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.2" y2="16.2"/></svg>
+    <span>搜索</span>
+  </button>
+  <button class="tab" data-tab="library">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5-8 8"/></svg>
+    <span>图库</span>
+  </button>
+  <button class="tab" data-tab="index">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/><circle cx="9" cy="8" r="2.5"/><circle cx="15" cy="16" r="2.5"/></svg>
+    <span>索引</span>
+  </button>
+  <button class="tab" data-tab="debug">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>
+    <span>调试</span>
+  </button>
+</nav>
+
+<div id="modal" class="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-content">
+    <img id="modal-img" alt="">
+    <p id="modal-name"></p>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="/assets/app.js"></script>
+</body>
+</html>
