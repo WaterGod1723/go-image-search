@@ -50,7 +50,11 @@ jobs:
 
       - name: Build
         run: |
-          go build -trimpath -ldflags "-s -w" -o "go-image-search-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}" .
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            go build -trimpath -ldflags "-s -w" -o "go-image-search-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe" .
+          else
+            go build -trimpath -ldflags "-s -w" -o "go-image-search-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}" .
+          fi
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
