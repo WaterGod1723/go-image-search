@@ -244,7 +244,12 @@
 
     <div id="seg-busy" class="busy" hidden><div class="spinner"></div><span>正在分析…</span></div>
     <p id="seg-info" class="seg-info"></p>
+    <div id="seg-mode" class="seg seg-mode" hidden>
+      <button data-val="bbox" class="active">边框</button>
+      <button data-val="fill">填色</button>
+    </div>
     <img id="seg-img" class="seg-img" alt="区域可视化" hidden>
+    <div id="seg-tip" class="seg-tip" hidden></div>
     <div id="seg-regions" class="card cell-group" hidden></div>
   </section>
 

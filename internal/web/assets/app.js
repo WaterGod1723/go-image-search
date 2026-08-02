@@ -393,23 +393,88 @@ async function refreshStatus() {
 }
 
 /* ---------------- 调试 ---------------- */
+let segQuery = null;
+let segLabelMap = null;     // { data: Uint8ClampedArray, width, height }
+let segRegionsById = new Map();
+
+function refreshSegImage() {
+  if (!segQuery) return;
+  $('#seg-img').src = '/api/segments.png?' + segQuery.toString();
+}
+
+// 加载标签图（每个像素编码区域 ID），用于鼠标悬停反查区域。
+async function loadSegLabelMap(query) {
+  const url = '/api/segments.map.png?' + query.toString();
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const blob = await res.blob();
+  const urlObj = URL.createObjectURL(blob);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = reject;
+      i.src = urlObj;
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    return { data: imgData.data, width: canvas.width, height: canvas.height };
+  } finally {
+    URL.revokeObjectURL(urlObj);
+  }
+}
+
+function labelAt(map, x, y) {
+  if (!map || x < 0 || y < 0 || x >= map.width || y >= map.height) return 0;
+  const i = (y * map.width + x) * 4;
+  return (map.data[i] << 16) | (map.data[i + 1] << 8) | map.data[i + 2];
+}
+
+function showSegTip(clientX, clientY, html) {
+  const tip = $('#seg-tip');
+  tip.innerHTML = html;
+  tip.hidden = false;
+  // 默认放在光标右下，靠近视口边缘则翻转
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  let left = clientX + 14;
+  let top = clientY + 14;
+  if (left + tw > vw - 8) left = clientX - tw - 14;
+  if (top + th > vh - 8) top = clientY - th - 14;
+  tip.style.left = left + 'px';
+  tip.style.top = top + 'px';
+}
+
+function hideSegTip() { $('#seg-tip').hidden = true; }
+
 $('#btn-seg').addEventListener('click', async () => {
   const path = $('#seg-path').value.trim();
   if (!path) { toast('请输入图像路径'); return; }
-  const q = new URLSearchParams({
+  segQuery = new URLSearchParams({
     path,
     thresholdPct: $('#seg-thr').value,
     median: $('#seg-median').value,
     connectivity: segVal('#seg-conn2'),
+    mode: segVal('#seg-mode'),
   });
   $('#seg-busy').hidden = false;
   $('#btn-seg').disabled = true;
   try {
-    const data = await fetchJSON('/api/segments?' + q.toString());
+    const [data, labelMap] = await Promise.all([
+      fetchJSON('/api/segments?' + segQuery.toString()),
+      loadSegLabelMap(segQuery).catch(() => null),
+    ]);
     $('#seg-info').textContent = '图像 ' + data.width + '×' + data.height + ' · ' + data.regions.length + ' 个区域';
-    const img = $('#seg-img');
-    img.src = '/api/segments.png?' + q.toString();
-    img.hidden = false;
+    segLabelMap = labelMap;
+    segRegionsById = new Map();
+    data.regions.forEach(r => segRegionsById.set(r.id, r));
+    refreshSegImage();
+    $('#seg-img').hidden = false;
+    $('#seg-mode').hidden = false;
     const box = $('#seg-regions');
     box.hidden = false;
     box.innerHTML = '';
@@ -428,6 +493,34 @@ $('#btn-seg').addEventListener('click', async () => {
     $('#btn-seg').disabled = false;
   }
 });
+
+// 切换区域可视化模式（边框 / 填色），仅刷新预览图。
+$('#seg-mode').addEventListener('click', e => {
+  const btn = e.target.closest('button');
+  if (!btn || !segQuery) return;
+  segQuery.set('mode', btn.dataset.val);
+  refreshSegImage();
+});
+
+// 鼠标悬停预览图时，按像素反查区域并展示信息。
+const segImg = $('#seg-img');
+segImg.addEventListener('mousemove', e => {
+  if (!segLabelMap) return;
+  const rect = segImg.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return;
+  const nx = Math.floor((e.clientX - rect.left) / rect.width * segLabelMap.width);
+  const ny = Math.floor((e.clientY - rect.top) / rect.height * segLabelMap.height);
+  const id = labelAt(segLabelMap, nx, ny);
+  if (id > 0 && segRegionsById.has(id)) {
+    const r = segRegionsById.get(id);
+    showSegTip(e.clientX, e.clientY,
+      '<span class="dot" style="background:' + esc(r.color) + '"></span>' +
+      '区域 #' + r.id + ' · 面积 ' + r.area + ' · bbox ' + r.bbox.join(','));
+  } else {
+    hideSegTip();
+  }
+});
+segImg.addEventListener('mouseleave', hideSegTip);
 
 /* ---------------- 启动 ---------------- */
 switchTab('search');

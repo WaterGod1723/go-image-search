@@ -106,6 +106,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/image", s.handleImage)
 	mux.HandleFunc("/api/segments", s.handleSegments)
 	mux.HandleFunc("/api/segments.png", s.handleSegmentsPNG)
+	mux.HandleFunc("/api/segments.map.png", s.handleSegmentsMapPNG)
 	return mux
 }
 
@@ -289,23 +290,23 @@ func (s *Server) runBuild(job *buildJob, req buildRequest) {
 	ix := index.New()
 	job.Total = len(files)
 	for i, f := range files {
-			job.Current = f
-			job.Done = i + 1
-			img, err := imageproc.Load(f)
+		job.Current = f
+		job.Done = i + 1
+		img, err := imageproc.Load(f)
+		if err != nil {
+			s.logger.Printf("跳过 %s: %v", f, err)
+			continue
+		}
+		id := strings.ReplaceAll(f, "\\", "/")
+		// 原图 + 骨架图分别入索引，让查询的任一衍生图都能命中对应表示。
+		for _, v := range imageproc.QueryVariants(img) {
+			hashes, err := hashImage(v, cfg, mc)
 			if err != nil {
-				s.logger.Printf("跳过 %s: %v", f, err)
 				continue
 			}
-			id := strings.ReplaceAll(f, "\\", "/")
-			// 原图 + 骨架图分别入索引，让查询的任一衍生图都能命中对应表示。
-			for _, v := range imageproc.QueryVariants(img) {
-				hashes, err := hashImage(v, cfg, mc)
-				if err != nil {
-					continue
-				}
-				ix.AddImage(id, hashes)
-			}
+			ix.AddImage(id, hashes)
 		}
+	}
 
 	if err := ix.Save(req.Out); err != nil {
 		s.failBuild(job, err)
@@ -532,7 +533,34 @@ func (s *Server) handleSegmentsPNG(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	vis := visualize(res, img)
+	var vis *image.RGBA
+	if r.URL.Query().Get("mode") == "fill" {
+		vis = visualizeFill(res, img)
+	} else {
+		vis = visualize(res, img)
+	}
+	data, err := imageproc.EncodePNG(vis)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(data)
+}
+
+func (s *Server) handleSegmentsMapPNG(w http.ResponseWriter, r *http.Request) {
+	img, ok := s.loadImageForSegments(w, r)
+	if !ok {
+		return
+	}
+	cfg := segConfigFromQuery(r.URL.Query())
+	res, err := segment.Segment(img, cfg)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	vis := visualizeLabels(res)
 	data, err := imageproc.EncodePNG(vis)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -576,6 +604,53 @@ func visualize(res *segment.Result, src image.Image) *image.RGBA {
 			dst.Set(box.Min.X, y, color.RGBA{255, 0, 0, 255})
 			dst.Set(box.Max.X-1, y, color.RGBA{255, 0, 0, 255})
 		}
+	}
+	return dst
+}
+
+// visualizeFill 用每个区域的平均色填充该区域像素，背景像素保留原图，
+// 直观展示区域划分结果。
+func visualizeFill(res *segment.Result, src image.Image) *image.RGBA {
+	b := src.Bounds()
+	dst := image.NewRGBA(b)
+	colors := make(map[int32]color.RGBA, len(res.Regions))
+	for _, reg := range res.Regions {
+		colors[int32(reg.ID)] = reg.MeanColor
+	}
+	for y := 0; y < res.Height; y++ {
+		for x := 0; x < res.Width; x++ {
+			px, py := b.Min.X+x, b.Min.Y+y
+			label := res.Labels[y*res.Width+x]
+			if label > 0 {
+				if c, ok := colors[label]; ok {
+					dst.Set(px, py, c)
+					continue
+				}
+			}
+			dst.Set(px, py, src.At(px, py))
+		}
+	}
+	return dst
+}
+
+// visualizeLabels 生成标签图：每个区域像素以唯一颜色编码其区域 ID
+// （R=高8位、G=中8位、B=低8位），背景像素为 (0,0,0)。
+// 客户端可读取像素反查区域 ID，实现悬停展示等交互。
+func visualizeLabels(res *segment.Result) *image.RGBA {
+	dst := image.NewRGBA(image.Rect(0, 0, res.Width, res.Height))
+	for i, label := range res.Labels {
+		off := i * 4
+		if label > 0 {
+			id := uint32(label)
+			dst.Pix[off+0] = uint8((id >> 16) & 0xff)
+			dst.Pix[off+1] = uint8((id >> 8) & 0xff)
+			dst.Pix[off+2] = uint8(id & 0xff)
+		} else {
+			dst.Pix[off+0] = 0
+			dst.Pix[off+1] = 0
+			dst.Pix[off+2] = 0
+		}
+		dst.Pix[off+3] = 255
 	}
 	return dst
 }

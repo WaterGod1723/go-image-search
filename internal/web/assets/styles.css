@@ -370,7 +370,17 @@ input[type=range]::-moz-range-thumb {
 
 /* ---------- 调试 ---------- */
 .seg-info { font-size: 14px; color: var(--text-dim, var(--text-faint)); padding: 6px 6px 12px; }
-.seg-img { display: none; width: 100%; border-radius: var(--radius-sm); box-shadow: var(--shadow); margin-bottom: 14px; background: var(--fill); }
+.seg-mode { max-width: 220px; margin: 0 0 12px; }
+.seg-img { display: block; width: 100%; border-radius: var(--radius-sm); box-shadow: var(--shadow); margin-bottom: 14px; background: var(--fill); cursor: crosshair; }
+.seg-tip {
+  position: fixed; z-index: 80; pointer-events: none;
+  background: var(--toast-bg); color: #fff; font-size: 12px;
+  padding: 6px 10px; border-radius: 10px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.32);
+  white-space: nowrap; max-width: 80vw;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.seg-tip .dot { width: 10px; height: 10px; margin-right: 6px; }
 #seg-regions .rr { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; font-size: 13px; color: var(--text-dim, var(--text-faint)); }
 #seg-regions .rr + .rr { border-top: 1px solid var(--separator); }
 
