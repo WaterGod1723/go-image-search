@@ -49,6 +49,7 @@ jobs:
         run: go test ./...
 
       - name: Build
+        shell: bash
         run: |
           if [ "${{ matrix.goos }}" = "windows" ]; then
             go build -trimpath -ldflags "-s -w" -o "go-image-search-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe" .
