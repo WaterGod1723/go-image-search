@@ -65,13 +65,16 @@ type buildJob struct {
 
 // buildRequest 构建索引的请求参数。
 type buildRequest struct {
-	Dir              string  `json:"dir"`
-	Out              string  `json:"out"`
-	ThresholdPct     float64 `json:"thresholdPct"`
-	ThresholdFactor  float64 `json:"thresholdFactor"`
-	MinAreaRatio     float64 `json:"minAreaRatio"`
-	MedianFilterK    int     `json:"medianFilterK"`
-	Connectivity     int     `json:"connectivity"`
+	Dir             string  `json:"dir"`
+	Out             string  `json:"out"`
+	ThresholdPct    float64 `json:"thresholdPct"`
+	ThresholdFactor float64 `json:"thresholdFactor"`
+	MinAreaRatio    float64 `json:"minAreaRatio"`
+	MedianFilterK   int     `json:"medianFilterK"`
+	Connectivity    int     `json:"connectivity"`
+	MergeHashDist   int     `json:"mergeHashDist"`
+	MergeColorDist  float64 `json:"mergeColorDist"`
+	NoMerge         bool    `json:"noMerge"`
 }
 
 // New 创建一个新的 Web 服务器。
@@ -119,25 +122,49 @@ func (s *Server) LoadIndex() error {
 	return nil
 }
 
-// hashImage 对图像做区域划分并为每个区域计算感知哈希。
-func hashImage(img image.Image, cfg segment.Config) ([]index.RegionHash, error) {
+// hashImage 对图像做区域划分、感知哈希，并将相似相邻区域合并为组合区域。
+func hashImage(img image.Image, cfg segment.Config, merge segment.MergeConfig) ([]index.RegionHash, error) {
 	res, err := segment.Segment(img, cfg)
 	if err != nil {
 		return nil, err
 	}
-	hashes := make([]index.RegionHash, 0, len(res.Regions))
+	infos := make([]segment.RegionInfo, 0, len(res.Regions))
 	for _, reg := range res.Regions {
 		crop := res.Crop(img, reg.ID)
 		if crop == nil {
 			continue
 		}
-		h := phash.Hash(crop)
+		infos = append(infos, segment.RegionInfo{
+			ID: reg.ID, Hash: phash.Hash(crop),
+			Area: reg.Area, Color: reg.MeanColor, BBox: reg.BBox,
+		})
+	}
+	merged := segment.MergeSimilar(img, res, infos, merge)
+	hashes := make([]index.RegionHash, 0, len(merged))
+	for _, m := range merged {
+		bw, bh := m.BBox.Dx(), m.BBox.Dy()
+		fill, aspect := 0.0, 0.0
+		if bw > 0 && bh > 0 {
+			fill = float64(m.Area) / float64(bw*bh)
+			aspect = float64(bw) / float64(bh)
+		}
+		nx, ny := 0.0, 0.0
+		if res.Width > 0 {
+			nx = float64(m.BBox.Min.X+m.BBox.Max.X) / (2 * float64(res.Width))
+		}
+		if res.Height > 0 {
+			ny = float64(m.BBox.Min.Y+m.BBox.Max.Y) / (2 * float64(res.Height))
+		}
 		hashes = append(hashes, index.RegionHash{
-			RegionID: reg.ID,
-			Hash:     h,
-			Area:     reg.Area,
-			BBox:     reg.BBox,
-			Color:    reg.MeanColor,
+			RegionID: m.ID,
+			Hash:     m.Hash,
+			Area:     m.Area,
+			BBox:     m.BBox,
+			Color:    m.MeanColor,
+			NX:       nx,
+			NY:       ny,
+			Fill:     fill,
+			Aspect:   aspect,
 		})
 	}
 	return hashes, nil
@@ -236,6 +263,17 @@ func (s *Server) runBuild(job *buildJob, req buildRequest) {
 		cfg.Connectivity = req.Connectivity
 	}
 
+	mc := segment.DefaultMergeConfig()
+	if req.MergeHashDist > 0 {
+		mc.HashDist = req.MergeHashDist
+	}
+	if req.MergeColorDist > 0 {
+		mc.ColorDist = req.MergeColorDist
+	}
+	if req.NoMerge {
+		mc.Enabled = false
+	}
+
 	files, err := imageproc.LoadSupported(req.Dir)
 	if err != nil {
 		s.failBuild(job, err)
@@ -256,7 +294,7 @@ func (s *Server) runBuild(job *buildJob, req buildRequest) {
 			s.logger.Printf("跳过 %s: %v", f, err)
 			continue
 		}
-		hashes, err := hashImage(img, cfg)
+		hashes, err := hashImage(img, cfg, mc)
 		if err != nil {
 			s.logger.Printf("跳过 %s: %v", f, err)
 			continue
@@ -355,16 +393,18 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := segment.DefaultConfig()
-	hashes, err := hashImage(img, cfg)
+	hashes, err := hashImage(img, cfg, segment.DefaultMergeConfig())
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	query := make([]index.QueryRegion, 0, len(hashes))
 	for _, h := range hashes {
-		query = append(query, index.QueryRegion{Hash: h.Hash, Area: h.Area, Color: h.Color})
+		query = append(query, index.QueryRegion{
+			Hash: h.Hash, Area: h.Area, Color: h.Color,
+			NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect,
+		})
 	}
-
 	top := atoiDefault(r.FormValue("top"), 5)
 	if top <= 0 {
 		top = 5

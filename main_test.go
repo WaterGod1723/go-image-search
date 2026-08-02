@@ -90,7 +90,7 @@ func TestEndToEndSearch(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		hashes, err := hashImage(img, cfg)
+		hashes, err := hashImage(img, cfg, segment.DefaultMergeConfig())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -102,13 +102,16 @@ func TestEndToEndSearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	qhashes, err := hashImage(qimg, cfg)
+	qhashes, err := hashImage(qimg, cfg, segment.DefaultMergeConfig())
 	if err != nil {
 		t.Fatal(err)
 	}
 	var query []index.QueryRegion
 	for _, h := range qhashes {
-		query = append(query, index.QueryRegion{Hash: h.Hash, Area: h.Area, Color: h.Color})
+		query = append(query, index.QueryRegion{
+			Hash: h.Hash, Area: h.Area, Color: h.Color,
+			NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect,
+		})
 	}
 	matches := ix.Search(query, index.SearchOptions{MaxDist: 12, ColorWeight: 0.8})
 	if len(matches) == 0 {

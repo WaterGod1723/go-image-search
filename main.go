@@ -46,6 +46,7 @@ func usage() {
   go-image-search serve [-addr <host:port>] [-root <图像库目录>] [-index <索引文件>]  # iOS 风格 Web 界面
 
 分段参数: -threshold-pct <0~1> -factor <x> -min-area-ratio <r> -median <k> -connectivity <4|8>
+合并参数: -merge-dist <汉明距离阈值> -merge-color <颜色阈值> -no-merge  # 相似相邻区域合并为组合区域
 `)
 }
 
@@ -59,25 +60,60 @@ func buildFlagSet(fs *flag.FlagSet) *segment.Config {
 	return &cfg
 }
 
-// hashImage 对图像做区域划分并为每个区域计算感知哈希。
-func hashImage(img image.Image, cfg segment.Config) ([]index.RegionHash, error) {
+// mergeFlagSet 注册相似区域合并参数。
+func mergeFlagSet(fs *flag.FlagSet) *segment.MergeConfig {
+	mc := segment.DefaultMergeConfig()
+	fs.BoolVar(&mc.Enabled, "no-merge", false, "关闭相似区域合并")
+	fs.IntVar(&mc.HashDist, "merge-dist", mc.HashDist, "合并的 pHash 汉明距离阈值")
+	fs.Float64Var(&mc.ColorDist, "merge-color", mc.ColorDist, "合并的平均色归一化距离阈值")
+	fs.Float64Var(&mc.GapFactor, "merge-gap", mc.GapFactor, "合并的空间邻近系数(0=仅邻接)")
+	return &mc
+}
+
+// hashImage 对图像做区域划分并为每个区域计算感知哈希；
+// 随后将感知哈希相近且空间相邻的区域合并为组合区域。
+func hashImage(img image.Image, cfg segment.Config, merge segment.MergeConfig) ([]index.RegionHash, error) {
 	res, err := segment.Segment(img, cfg)
 	if err != nil {
 		return nil, err
 	}
-	hashes := make([]index.RegionHash, 0, len(res.Regions))
+	infos := make([]segment.RegionInfo, 0, len(res.Regions))
 	for _, reg := range res.Regions {
 		crop := res.Crop(img, reg.ID)
 		if crop == nil {
 			continue
 		}
-		h := phash.Hash(crop)
+		infos = append(infos, segment.RegionInfo{
+			ID: reg.ID, Hash: phash.Hash(crop),
+			Area: reg.Area, Color: reg.MeanColor, BBox: reg.BBox,
+		})
+	}
+	merged := segment.MergeSimilar(img, res, infos, merge)
+	hashes := make([]index.RegionHash, 0, len(merged))
+	for _, m := range merged {
+		bw, bh := m.BBox.Dx(), m.BBox.Dy()
+		fill, aspect := 0.0, 0.0
+		if bw > 0 && bh > 0 {
+			fill = float64(m.Area) / float64(bw*bh)
+			aspect = float64(bw) / float64(bh)
+		}
+		nx, ny := 0.0, 0.0
+		if res.Width > 0 {
+			nx = float64(m.BBox.Min.X+m.BBox.Max.X) / (2 * float64(res.Width))
+		}
+		if res.Height > 0 {
+			ny = float64(m.BBox.Min.Y+m.BBox.Max.Y) / (2 * float64(res.Height))
+		}
 		hashes = append(hashes, index.RegionHash{
-			RegionID: reg.ID,
-			Hash:     h,
-			Area:     reg.Area,
-			BBox:     reg.BBox,
-			Color:    reg.MeanColor,
+			RegionID: m.ID,
+			Hash:     m.Hash,
+			Area:     m.Area,
+			BBox:     m.BBox,
+			Color:    m.MeanColor,
+			NX:       nx,
+			NY:       ny,
+			Fill:     fill,
+			Aspect:   aspect,
 		})
 	}
 	return hashes, nil
@@ -88,6 +124,7 @@ func runBuild(args []string) {
 	dir := fs.String("dir", "", "图像库目录")
 	out := fs.String("out", "index.bin", "输出索引文件")
 	cfg := buildFlagSet(fs)
+	mc := mergeFlagSet(fs)
 	fs.Parse(args)
 
 	if *dir == "" {
@@ -111,7 +148,7 @@ func runBuild(args []string) {
 			fmt.Fprintf(os.Stderr, "[跳过] %s: %v\n", f, err)
 			continue
 		}
-		hashes, err := hashImage(img, *cfg)
+		hashes, err := hashImage(img, *cfg, *mc)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "[跳过] %s: %v\n", f, err)
 			continue
@@ -136,6 +173,7 @@ func runQuery(args []string) {
 	maxDist := fs.Int("maxdist", 12, "区域哈希最大汉明距离")
 	colorWeight := fs.Float64("color-weight", 0.8, "颜色相似度权重(0关闭)")
 	cfg := buildFlagSet(fs)
+	mc := mergeFlagSet(fs)
 	fs.Parse(args)
 
 	if *q == "" {
@@ -152,7 +190,7 @@ func runQuery(args []string) {
 		fmt.Fprintf(os.Stderr, "加载查询图像失败: %v\n", err)
 		os.Exit(1)
 	}
-	hashes, err := hashImage(img, *cfg)
+	hashes, err := hashImage(img, *cfg, *mc)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "查询图像处理失败: %v\n", err)
 		os.Exit(1)
@@ -160,9 +198,11 @@ func runQuery(args []string) {
 
 	query := make([]index.QueryRegion, 0, len(hashes))
 	for _, h := range hashes {
-		query = append(query, index.QueryRegion{Hash: h.Hash, Area: h.Area, Color: h.Color})
+		query = append(query, index.QueryRegion{
+			Hash: h.Hash, Area: h.Area, Color: h.Color,
+			NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect,
+		})
 	}
-
 	matches := ix.Search(query, index.SearchOptions{MaxDist: *maxDist, ColorWeight: *colorWeight})
 
 	fmt.Printf("查询区域数: %d\n", len(query))

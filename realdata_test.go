@@ -38,7 +38,7 @@ func TestRealDatasetSearch(t *testing.T) {
 		if err != nil {
 			t.Fatalf("加载索引图片失败 %s: %v", f, err)
 		}
-		hashes, err := hashImage(img, cfg)
+		hashes, err := hashImage(img, cfg, segment.DefaultMergeConfig())
 		if err != nil {
 			t.Fatalf("索引图片处理失败 %s: %v", f, err)
 		}
@@ -66,16 +66,19 @@ func TestRealDatasetSearch(t *testing.T) {
 			t.Errorf("[%s] 加载失败: %v", filepath.Base(qf), err)
 			continue
 		}
-		hashes, err := hashImage(img, cfg)
+		hashes, err := hashImage(img, cfg, segment.DefaultMergeConfig())
 		if err != nil {
 			t.Errorf("[%s] 处理失败: %v", filepath.Base(qf), err)
 			continue
 		}
 		var query []index.QueryRegion
 		for _, h := range hashes {
-			query = append(query, index.QueryRegion{Hash: h.Hash, Area: h.Area, Color: h.Color})
+			query = append(query, index.QueryRegion{
+				Hash: h.Hash, Area: h.Area, Color: h.Color,
+				NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect,
+			})
 		}
-		matches := ix.Search(query, index.SearchOptions{MaxDist: 20, ColorWeight: 0.8})
+		matches := ix.Search(query, index.SearchOptions{MaxDist: 12, ColorWeight: 0.8})
 
 		gotRank, gotScore := -1, 0.0
 		for i, m := range matches {
