@@ -250,26 +250,31 @@ func (s *Server) runBuild(job *buildJob, req buildRequest) {
 
 	ix := index.New()
 	job.Total = len(files)
-	for i, f := range files {
-		job.Current = f
-		job.Done = i + 1
+	added := ix.BuildParallel(files, 0, func(f string) (string, []index.RegionHash, error) {
 		img, err := imageproc.Load(f)
 		if err != nil {
 			s.logger.Printf("跳过 %s: %v", f, err)
-			continue
+			return "", nil, err
 		}
 		id := strings.ReplaceAll(f, "\\", "/")
 		// 原图 + 骨架图分别入索引，让查询的任一衍生图都能命中对应表示。
 		// 索引阶段也启用引力聚合：区域过多时聚合出辅助组合区域一并入索引，
 		// 与查询阶段的辅助查询区域对应，提升碎片化图像的召回。
+		var regions []index.RegionHash
 		for _, v := range imageproc.QueryVariants(img) {
 			hashes, err := hashImage(v, cfg, mc, segment.DefaultGravityConfig())
 			if err != nil {
 				continue
 			}
-			ix.AddImage(id, hashes)
+			regions = append(regions, hashes...)
 		}
-	}
+		return id, regions, nil
+	}, func(p index.BuildProgress) {
+		s.mu.Lock()
+		job.Current = p.File
+		job.Done = p.Done
+		s.mu.Unlock()
+	})
 
 	if err := ix.Save(req.Out); err != nil {
 		s.failBuild(job, err)
@@ -280,11 +285,11 @@ func (s *Server) runBuild(job *buildJob, req buildRequest) {
 	s.index = ix
 	s.opts.IndexPath = req.Out
 	job.State = "done"
-	job.Images = len(ix.Images)
+	job.Images = added
 	job.Regions = ix.Len()
 	job.Message = "构建完成"
 	s.mu.Unlock()
-	s.logger.Printf("索引构建完成: %d 图像, %d 区域 -> %s", len(ix.Images), ix.Len(), req.Out)
+	s.logger.Printf("索引构建完成: %d 图像, %d 区域 -> %s", added, ix.Len(), req.Out)
 }
 
 func (s *Server) failBuild(job *buildJob, err error) {

@@ -1,12 +1,15 @@
 package index
 
 import (
+	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"go-image-search/internal/phash"
@@ -372,6 +375,135 @@ func TestHungarian(t *testing.T) {
 			t.Fatalf("iter=%d 成本不一致: got=%v total=%f want=%v total=%f",
 				iter, got, gotTotal, wantAssign, wantTotal)
 		}
+	}
+}
+
+// TestBuildParallelDeterministic 验证并行构建（BuildParallel）与串行构建产生完全
+// 一致的索引：条目顺序、分段表、跳过行为与保存结果均相同，确保并发改造不改变
+// 检索结果与索引文件内容。同时验证进度回调按输入顺序且覆盖全部文件。
+func TestBuildParallelDeterministic(t *testing.T) {
+	rng := rand.New(rand.NewSource(7))
+	files := make([]string, 60)
+	gen := make(map[string][]RegionHash, len(files))
+	for i := range files {
+		f := fmt.Sprintf("img%02d.png", i)
+		files[i] = f
+		n := rng.Intn(6) + 1
+		regs := make([]RegionHash, n)
+		for j := range regs {
+			regs[j] = mkRegionHash(j+1, rng.Intn(500)+10, image.Rect(0, 0, 12, 12),
+				color.RGBA{uint8(rng.Intn(256)), uint8(rng.Intn(256)), uint8(rng.Intn(256)), 255})
+		}
+		gen[f] = regs
+	}
+	gen["img07.png"] = []RegionHash{} // 空区域：应跳过
+	skipErr := errors.New("boom")     // 处理失败：img13.png 应跳过
+
+	proc := func(f string) (string, []RegionHash, error) {
+		if f == "img13.png" {
+			return "", nil, skipErr
+		}
+		regs, ok := gen[f]
+		if !ok {
+			return "", nil, errors.New("missing")
+		}
+		return f, regs, nil
+	}
+
+	serial := New()
+	gotSerial := serial.BuildParallel(files, 1, proc, nil)
+
+	parallel := New()
+	progress := make([]BuildProgress, 0, len(files))
+	gotParallel := parallel.BuildParallel(files, 0, proc, func(p BuildProgress) {
+		progress = append(progress, p)
+	})
+
+	if gotSerial != gotParallel {
+		t.Fatalf("入索引文件数不一致: serial=%d parallel=%d", gotSerial, gotParallel)
+	}
+	if gotParallel != len(files)-2 {
+		t.Fatalf("跳过逻辑错误: 期望 %d 个文件入索引，得到 %d", len(files)-2, gotParallel)
+	}
+	if len(progress) != len(files) {
+		t.Fatalf("进度回调次数错误: %d", len(progress))
+	}
+	for i, p := range progress {
+		if p.Done != i+1 {
+			t.Fatalf("进度未按输入顺序回调: idx=%d Done=%d", i, p.Done)
+		}
+		if files[i] == "img13.png" {
+			if p.Err == nil {
+				t.Fatalf("img13.png 应报错跳过: %+v", p)
+			}
+			continue
+		}
+		if files[i] == "img07.png" {
+			if p.Err != nil || p.ID != "" || p.Regions != 0 {
+				t.Fatalf("img07.png 应空区域跳过: %+v", p)
+			}
+			continue
+		}
+		if p.Err != nil {
+			t.Fatalf("idx=%d 不应报错: %v", i, p.Err)
+		}
+		if p.ID != files[i] || p.Regions != len(gen[files[i]]) {
+			t.Fatalf("idx=%d 进度信息不符: id=%s regions=%d", i, p.ID, p.Regions)
+		}
+	}
+
+	if len(serial.Entries) != len(parallel.Entries) || len(serial.Images) != len(parallel.Images) {
+		t.Fatalf("索引规模不一致: %d/%d vs %d/%d",
+			len(serial.Entries), len(serial.Images), len(parallel.Entries), len(parallel.Images))
+	}
+	for i := range serial.Entries {
+		if serial.Entries[i] != parallel.Entries[i] {
+			t.Fatalf("第 %d 条区域记录不一致", i)
+		}
+	}
+	for s := range serial.Segments {
+		if !reflect.DeepEqual(serial.Segments[s], parallel.Segments[s]) {
+			t.Fatalf("Segments[%d] 不一致", s)
+		}
+		if !reflect.DeepEqual(serial.Shapes[s], parallel.Shapes[s]) {
+			t.Fatalf("Shapes[%d] 不一致", s)
+		}
+	}
+
+	// gob 对 map 的编码顺序不确定，因此不比较文件字节，而是 Load 回来后比较结构，
+	// 确认并行构建的索引文件可完整还原（内容与串行一致）。
+	sp := filepath.Join(t.TempDir(), "idx.bin")
+	if err := parallel.Save(sp); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(sp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(loaded.Entries, parallel.Entries) {
+		t.Fatal("Load 后区域条目不一致")
+	}
+	for s := range loaded.Segments {
+		if !reflect.DeepEqual(loaded.Segments[s], parallel.Segments[s]) ||
+			!reflect.DeepEqual(loaded.Shapes[s], parallel.Shapes[s]) {
+			t.Fatalf("Load 后分段表[%d]不一致", s)
+		}
+	}
+}
+
+// TestBuildParallelEmpty 验证空输入与单文件输入不 panic 且行为正确。
+func TestBuildParallelEmpty(t *testing.T) {
+	if n := New().BuildParallel(nil, 0, func(f string) (string, []RegionHash, error) { return f, nil, nil }, nil); n != 0 {
+		t.Fatalf("空输入应返回 0，得到 %d", n)
+	}
+	ix := New()
+	if n := ix.BuildParallel([]string{"a.png"}, 0, func(f string) (string, []RegionHash, error) {
+		return f, []RegionHash{{RegionID: 1, Hash: 1, Area: 1}}, nil
+	}, nil); n != 1 {
+		t.Fatalf("单文件应返回 1，得到 %d", n)
+	}
+	if ix.Len() != 1 || !ix.Images["a.png"] {
+		t.Fatal("单文件入索引失败")
 	}
 }
 

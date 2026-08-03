@@ -98,6 +98,7 @@ func runBuild(args []string) {
 	fs := flag.NewFlagSet("build", flag.ExitOnError)
 	dir := fs.String("dir", "", "图像库目录")
 	out := fs.String("out", "index.bin", "输出索引文件")
+	jobs := fs.Int("jobs", 0, "并发构建线程数(0=CPU 核数)")
 	cfg := buildFlagSet(fs)
 	mc := mergeFlagSet(fs)
 	fs.Parse(args)
@@ -117,33 +118,37 @@ func runBuild(args []string) {
 	}
 
 	ix := index.New()
-	for i, f := range files {
+	added := ix.BuildParallel(files, *jobs, func(f string) (string, []index.RegionHash, error) {
 		img, err := imageproc.Load(f)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[跳过] %s: %v\n", f, err)
-			continue
+			return "", nil, err
 		}
 		id := strings.ReplaceAll(f, "\\", "/")
-		total := 0
 		// 原图 + 骨架图分别入索引，让查询的任一衍生图都能命中对应表示。
 		// 索引阶段也启用引力聚合：区域过多时聚合出辅助组合区域一并入索引，
 		// 与查询阶段的辅助查询区域对应，提升碎片化图像的召回。
+		var regions []index.RegionHash
 		for _, v := range imageproc.QueryVariants(img) {
 			hashes, err := hashImage(v, *cfg, *mc, segment.DefaultGravityConfig())
 			if err != nil {
 				continue
 			}
-			ix.AddImage(id, hashes)
-			total += len(hashes)
+			regions = append(regions, hashes...)
 		}
-		fmt.Printf("[%d/%d] %s (%d 区域, 含骨架)\n", i+1, len(files), id, total)
-	}
+		return id, regions, nil
+	}, func(p index.BuildProgress) {
+		if p.Err != nil {
+			fmt.Fprintf(os.Stderr, "[跳过] %s: %v\n", p.File, p.Err)
+			return
+		}
+		fmt.Printf("[%d/%d] %s (%d 区域, 含骨架)\n", p.Done, len(files), p.ID, p.Regions)
+	})
 
 	if err := ix.Save(*out); err != nil {
 		fmt.Fprintf(os.Stderr, "保存索引失败: %v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("完成: %d 张图像, %d 个区域 -> %s\n", len(ix.Images), ix.Len(), *out)
+	fmt.Printf("完成: %d 张图像, %d 个区域 -> %s\n", added, ix.Len(), *out)
 }
 
 func runQuery(args []string) {

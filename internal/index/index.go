@@ -9,7 +9,9 @@ import (
 	"image/color"
 	"math"
 	"os"
+	"runtime"
 	"sort"
+	"sync"
 
 	"go-image-search/internal/phash"
 )
@@ -108,6 +110,111 @@ func (ix *Index) AddImage(imageID string, regions []RegionHash) {
 	ix.Images[imageID] = true
 }
 
+// BuildProgress 单个文件构建结果（按输入顺序回调）。
+type BuildProgress struct {
+	Done    int    // 已处理的文件数（含跳过）
+	File    string // 原始文件路径
+	ID      string // 入索引的图像 ID（失败或跳过时为空）
+	Regions int    // 本次入索引的区域数
+	Err     error  // 该文件的处理错误（跳过时非 nil）
+}
+
+// buildFile 一个文件的并发处理结果。
+type buildFile struct {
+	idx     int
+	id      string
+	regions []RegionHash
+	err     error
+}
+
+// BuildParallel 并发构建索引：用 workers 个 goroutine 并行调用 proc 处理 files
+// （每个文件的加载/变体/区域哈希都是 CPU 密集操作，互不共享可变状态），并按输入
+// 顺序把结果写入索引，保证索引内容与串行构建完全一致、输出确定可复现。
+//
+//   - workers <= 0 时使用 GOMAXPROCS；文件数不足时自动收缩。
+//   - proc 返回该文件要入库的图像 ID 与区域集合；err 非 nil 或区域为空时跳过该文件。
+//   - onProgress 可选（可为 nil），按输入顺序回调进度，供日志/UI 使用。
+//
+// 返回实际入索引的文件数。
+func (ix *Index) BuildParallel(files []string, workers int, proc func(file string) (id string, regions []RegionHash, err error), onProgress func(p BuildProgress)) int {
+	if len(files) == 0 {
+		return 0
+	}
+	if workers <= 0 {
+		workers = runtime.GOMAXPROCS(0)
+	}
+	if workers > len(files) {
+		workers = len(files)
+	}
+	if workers <= 1 {
+		added := 0
+		for i, f := range files {
+			id, regions, err := proc(f)
+			if err != nil || len(regions) == 0 {
+				if onProgress != nil {
+					onProgress(BuildProgress{Done: i + 1, File: f, Err: err})
+				}
+				continue
+			}
+			ix.AddImage(id, regions)
+			added++
+			if onProgress != nil {
+				onProgress(BuildProgress{Done: i + 1, File: f, ID: id, Regions: len(regions)})
+			}
+		}
+		return added
+	}
+
+	jobs := make(chan int)
+	results := make(chan buildFile, workers)
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for fi := range jobs {
+				id, regions, err := proc(files[fi])
+				results <- buildFile{idx: fi, id: id, regions: regions, err: err}
+			}
+		}()
+	}
+	go func() {
+		for fi := range files {
+			jobs <- fi
+		}
+		close(jobs)
+		wg.Wait()
+		close(results)
+	}()
+
+	added := 0
+	next := 0
+	pending := make(map[int]buildFile)
+	for r := range results {
+		pending[r.idx] = r
+		for {
+			cur, ok := pending[next]
+			if !ok {
+				break
+			}
+			delete(pending, next)
+			next++
+			if cur.err != nil || len(cur.regions) == 0 {
+				if onProgress != nil {
+					onProgress(BuildProgress{Done: next, File: files[cur.idx], Err: cur.err})
+				}
+				continue
+			}
+			ix.AddImage(cur.id, cur.regions)
+			added++
+			if onProgress != nil {
+				onProgress(BuildProgress{Done: next, File: files[cur.idx], ID: cur.id, Regions: len(cur.regions)})
+			}
+		}
+	}
+	return added
+}
+
 // Len 返回区域条目总数。
 func (ix *Index) Len() int { return len(ix.Entries) }
 
@@ -131,7 +238,7 @@ type QueryRegion struct {
 type RegionMatch struct {
 	Entry RegionEntry
 	Dist  int
-	QI    int  // 匹配的查询区域下标
+	QI    int     // 匹配的查询区域下标
 	W     float64 // 该查询区域的 idf 权重（调试用）
 }
 
