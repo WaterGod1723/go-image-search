@@ -1,4 +1,5 @@
-// 相似区域合并：将感知哈希相近且空间邻近/相邻的区域合并为组合区域。
+// merge.go 相似区域合并：将感知哈希相近且空间邻近/相邻的区域合并为组合区域。
+// 定义了 RegionInfo / MergedRegion 类型与 MergeSimilar。对应策略见 builtin.go 的 Merge。
 package segment
 
 import (
@@ -227,60 +228,6 @@ func mergeCluster(src image.Image, members []int, byID map[int]RegionInfo) Merge
 	return mr
 }
 
-// structuralMask 生成颜色无关的结构掩码（灰度 → Otsu 二值，前景为黑）。
-// 与 imageproc.StructuralMask 语义一致，供合并区域计算结构哈希使用，
-// 避免 segment 引入对 imageproc 的依赖。
-func structuralMask(src image.Image) *image.Gray {
-	b := src.Bounds()
-	g := image.NewGray(b)
-	for y := b.Min.Y; y < b.Max.Y; y++ {
-		for x := b.Min.X; x < b.Max.X; x++ {
-			g.Set(x, y, color.GrayModel.Convert(src.At(x, y)))
-		}
-	}
-	hist := make([]int, 256)
-	for _, v := range g.Pix {
-		hist[v]++
-	}
-	total := len(g.Pix)
-	if total == 0 {
-		return g
-	}
-	sum := 0
-	for i, n := range hist {
-		sum += i * n
-	}
-	sumB, wB := 0, 0
-	bestThr, bestVar := uint8(0), float64(-1)
-	for t := 0; t < 256; t++ {
-		wB += hist[t]
-		if wB == 0 {
-			continue
-		}
-		wF := total - wB
-		if wF == 0 {
-			break
-		}
-		sumB += t * hist[t]
-		mB := float64(sumB) / float64(wB)
-		mF := float64(sum-sumB) / float64(wF)
-		between := float64(wB) * float64(wF) * (mB - mF) * (mB - mF)
-		if between >= bestVar {
-			bestVar = between
-			bestThr = uint8(t)
-		}
-	}
-	out := image.NewGray(b)
-	for i, v := range g.Pix {
-		if v < bestThr {
-			out.Pix[i] = 0
-		} else {
-			out.Pix[i] = 255
-		}
-	}
-	return out
-}
-
 // regionAdjacency 从标签图提取相邻区域对（无向、去重）。
 func regionAdjacency(res *Result, connectivity int) map[int]map[int]bool {
 	w, h := res.Width, res.Height
@@ -324,21 +271,6 @@ func regionAdjacency(res *Result, connectivity int) map[int]map[int]bool {
 		}
 	}
 	return edges
-}
-
-// cropRect 裁剪出矩形区域的内容。
-func cropRect(src image.Image, b image.Rectangle) *image.RGBA {
-	bb := b.Intersect(src.Bounds())
-	if bb.Empty() {
-		return nil
-	}
-	out := image.NewRGBA(bb)
-	for y := bb.Min.Y; y < bb.Max.Y; y++ {
-		for x := bb.Min.X; x < bb.Max.X; x++ {
-			out.Set(x, y, src.At(x, y))
-		}
-	}
-	return out
 }
 
 // colorDistNorm01 返回两个颜色的归一化 RGB 距离 [0,1]。
@@ -413,12 +345,3 @@ func (u *unionFind) union(a, b int) {
 	}
 }
 
-func minID(ids []int) int {
-	m := ids[0]
-	for _, v := range ids[1:] {
-		if v < m {
-			m = v
-		}
-	}
-	return m
-}

@@ -1,5 +1,13 @@
-// Package segment 对图像做基于像素颜色相似性与连通性的区域划分。
+// Package segment 提供图像区域划分能力，分为两层：
+//   - 算法层（color.go / merge.go / gravity.go / common.go）：像素颜色连通区域划分、
+//     相似区域合并、引力聚合及共享工具；
+//   - 策略层（strategy.go / builtin.go / run.go）：Strategy 接口 + 内置策略 + Pipeline，
+//     统一入口 Run / RunDefault 支持可插拔、可组合的区域划分策略。
 package segment
+
+// color.go 像素颜色连通区域划分：基于颜色相似性与连通性把图像划分为连通区域，
+// 并为区域去噪、裁剪提供支持。对应的策略见 builtin.go 的 ColorSegment。
+
 
 import (
 	"image"

@@ -167,10 +167,12 @@ func TestProcessRegionsCombineFew(t *testing.T) {
 	mc := segment.DefaultMergeConfig()
 
 	grav := segment.DefaultGravityConfig()
-	_, partition, all, err := processRegions(img, cfg, mc, grav)
+	_, out, err := segment.RunDefault(img, cfg, mc, grav)
 	if err != nil {
-		t.Fatalf("processRegions 失败: %v", err)
+		t.Fatalf("segment.RunDefault 失败: %v", err)
 	}
+	partition := out.Partition
+	all := out.All()
 	// 白色背景区域 bbox 与全图重合，应被边框过滤丢弃
 	for _, p := range partition {
 		if p.BBox == image.Rect(0, 0, 100, 100) {
@@ -189,11 +191,11 @@ func TestProcessRegionsCombineFew(t *testing.T) {
 
 	grav2 := grav
 	grav2.CombineFew = 0
-	_, _, all2, err := processRegions(img, cfg, mc, grav2)
+	_, out2, err := segment.RunDefault(img, cfg, mc, grav2)
 	if err != nil {
-		t.Fatalf("processRegions(禁用) 失败: %v", err)
+		t.Fatalf("segment.RunDefault(禁用) 失败: %v", err)
 	}
-	for _, a := range all2 {
+	for _, a := range out2.All() {
 		if a.Whole {
 			t.Fatalf("CombineFew=0 时不应有整图辅助区域: %+v", a)
 		}

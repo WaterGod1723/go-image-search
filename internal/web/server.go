@@ -25,7 +25,6 @@ import (
 
 	"go-image-search/internal/imageproc"
 	"go-image-search/internal/index"
-	"go-image-search/internal/phash"
 	"go-image-search/internal/segment"
 )
 
@@ -123,132 +122,16 @@ func (s *Server) LoadIndex() error {
 	return nil
 }
 
-// processRegions 是区域处理的唯一入口（segment → merge → gravity），返回：
-//   - res:      原始分段结果（提供像素标签与尺寸，供像素级可视化）
-//   - partition: 空间不重叠的划分区域（additive 模式=merge 结果，replace 模式=引力替换后集合）
-//   - all:      全部参与检索的区域（partition + 引力辅助区域），顺序编号 1..N
-//
-// hashImage 与调试端点共用此函数，确保检索行为与调试视图完全一致，避免漏改。
-func processRegions(img image.Image, cfg segment.Config, mergeCfg segment.MergeConfig, grav segment.GravityConfig) (*segment.Result, []segment.MergedRegion, []segment.MergedRegion, error) {
-	res, err := segment.Segment(img, cfg)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	infos := make([]segment.RegionInfo, 0, len(res.Regions))
-	for _, reg := range res.Regions {
-		crop := res.Crop(img, reg.ID)
-		if crop == nil {
-			continue
-		}
-		shape := phash.Hash(imageproc.StructuralMask(crop))
-		infos = append(infos, segment.RegionInfo{
-			ID: reg.ID, Hash: phash.Hash(crop), Shape: shape,
-			Area: reg.Area, Color: reg.MeanColor, BBox: reg.BBox,
-		})
-	}
-	merged := segment.MergeSimilar(img, res, infos, mergeCfg)
+// processRegions 由 segment.RunDefault（统一入口）替代：像素划分 → 相似合并 →
+// 引力聚合 → 辅助区域构建，返回（res, partition, aux）。
 
-	// 引力聚合：区域过多时按引力模型聚合。Additive 模式产出辅助组合区域追加；
-	// replace 模式用聚合后的完整集合替换原区域。
-	partition := merged
-	var aux []segment.MergedRegion
-	if grav.Enabled {
-		gravity := segment.GravityMerge(img, merged, grav)
-		if grav.Additive {
-			aux = gravity
-		} else {
-			partition = gravity
-		}
-	}
-
-	// 丢弃与图像边界几乎重合的区域（无效边框/背景）
-	if grav.FrameRatio > 0 {
-		partition = segment.FilterFullFrame(partition, img.Bounds().Dx(), img.Bounds().Dy(), grav.FrameRatio)
-	}
-
-	// 整图辅助（绿框）：触发依据优先取蓝色辅助区域数量，其次才是最初划分区域（红框）数量。
-	// 在蓝框合并/红框转蓝之前判定，避免 relabel 后 aux 数量变化影响触发。
-	var whole *segment.MergedRegion
-	if segment.ShouldAddWholeAux(grav, partition, aux) {
-		w := segment.MergeAll(img, partition)
-		whole = &w
-	}
-
-	// 蓝框相交、相互包含 → 合并为新的辅助区域，提升每个索引区域的全局信息。
-	aux = segment.MergeContainedOverlapping(img, aux)
-
-	// 红框自动变蓝：划分区域逐个标记为蓝色辅助区域（仅标记，不合并成一个蓝色区域），
-	// 使索引只包含蓝框与绿框，红框不再直接入库。
-	if grav.Enabled && grav.CombineFew > 0 && len(partition) >= 2 {
-		for i := range partition {
-			p := partition[i]
-			p.Whole = false
-			aux = append(aux, p)
-		}
-	}
-
-	if whole != nil {
-		aux = append(aux, *whole)
-	}
-
-	// 顺序编号：partition 1..P，aux P+1..P+A
-	id := 0
-	for i := range partition {
-		id++
-		partition[i].ID = id
-	}
-	for i := range aux {
-		id++
-		aux[i].ID = id
-	}
-	all := make([]segment.MergedRegion, 0, len(partition)+len(aux))
-	all = append(all, partition...)
-	all = append(all, aux...)
-	return res, partition, all, nil
-}
-
-// hashImage 对图像做区域划分、感知哈希，并将相似相邻区域合并为组合区域。
-// 当 grav.Enabled 且区域数过多时，按引力模型聚合出辅助区域（Additive 模式追加，
-// replace 模式替换），用于辅助检索。
+// hashImage 对图像执行区域划分（默认流水线），并将区域产出转换为待入库的哈希区域。
 func hashImage(img image.Image, cfg segment.Config, mergeCfg segment.MergeConfig, grav segment.GravityConfig) ([]index.RegionHash, error) {
-	res, partition, all, err := processRegions(img, cfg, mergeCfg, grav)
+	res, out, err := segment.RunDefault(img, cfg, mergeCfg, grav)
 	if err != nil {
 		return nil, err
 	}
-	idx := all
-	if len(all) > len(partition) {
-		idx = all[len(partition):] // 仅蓝框+绿框入库
-	}
-	hashes := make([]index.RegionHash, 0, len(idx))
-	for _, m := range idx {
-		bw, bh := m.BBox.Dx(), m.BBox.Dy()
-		fill, aspect := 0.0, 0.0
-		if bw > 0 && bh > 0 {
-			fill = float64(m.Area) / float64(bw*bh)
-			aspect = float64(bw) / float64(bh)
-		}
-		nx, ny := 0.0, 0.0
-		if res.Width > 0 {
-			nx = float64(m.BBox.Min.X+m.BBox.Max.X) / (2 * float64(res.Width))
-		}
-		if res.Height > 0 {
-			ny = float64(m.BBox.Min.Y+m.BBox.Max.Y) / (2 * float64(res.Height))
-		}
-		hashes = append(hashes, index.RegionHash{
-			RegionID: m.ID,
-			Hash:     m.Hash,
-			Shape:    m.Shape,
-			Area:     m.Area,
-			BBox:     m.BBox,
-			Color:    m.MeanColor,
-			NX:       nx,
-			NY:       ny,
-			Fill:     fill,
-			Aspect:   aspect,
-			Global:   segment.GlobalWeight(m),
-		})
-	}
-	return hashes, nil
+	return index.RegionHashes(res, out), nil
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -587,11 +470,12 @@ func (s *Server) handleSegments(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	cfg := segConfigFromQuery(q)
 	grav := gravityConfigFromQuery(q)
-	res, _, all, err := processRegions(img, cfg, segment.DefaultMergeConfig(), grav)
+	res, out, err := segment.RunDefault(img, cfg, segment.DefaultMergeConfig(), grav)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	all := out.All()
 	regions := make([]regionJSON, 0, len(all))
 	for _, reg := range all {
 		regions = append(regions, regionJSON{
@@ -617,16 +501,17 @@ func (s *Server) handleSegmentsPNG(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	cfg := segConfigFromQuery(q)
 	grav := gravityConfigFromQuery(q)
-	res, partition, all, err := processRegions(img, cfg, segment.DefaultMergeConfig(), grav)
+	res, out, err := segment.RunDefault(img, cfg, segment.DefaultMergeConfig(), grav)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	partition := out.Partition
 	var vis *image.RGBA
 	if q.Get("mode") == "fill" {
 		vis = visualizeFill(res, partition, img)
 	} else {
-		vis = visualize(partition, all[len(partition):], img)
+		vis = visualize(partition, out.Aux, img)
 	}
 	data, err := imageproc.EncodePNG(vis)
 	if err != nil {
@@ -646,12 +531,12 @@ func (s *Server) handleSegmentsMapPNG(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	cfg := segConfigFromQuery(q)
 	grav := gravityConfigFromQuery(q)
-	res, partition, _, err := processRegions(img, cfg, segment.DefaultMergeConfig(), grav)
+	res, out, err := segment.RunDefault(img, cfg, segment.DefaultMergeConfig(), grav)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	vis := visualizeLabels(res, partition)
+	vis := visualizeLabels(res, out.Partition)
 	data, err := imageproc.EncodePNG(vis)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
