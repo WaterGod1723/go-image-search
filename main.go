@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"go-image-search/internal/detect"
 	"go-image-search/internal/imageproc"
 	"go-image-search/internal/index"
 	"go-image-search/internal/phash"
@@ -28,6 +29,8 @@ func main() {
 		runQuery(os.Args[2:])
 	case "segments":
 		runSegments(os.Args[2:])
+	case "detect":
+		runDetect(os.Args[2:])
 	case "serve":
 		runServe(os.Args[2:])
 	default:
@@ -41,13 +44,15 @@ func usage() {
 
 用法:
   go-image-search build -dir <图像库目录> -out <索引文件> [分段参数...]
-  go-image-search query -index <索引文件> -q <查询图像> [-top N] [-maxdist D]
+  go-image-search query -index <索引文件> -q <查询图像> [-top N] [-maxdist D] [-detect] [检测参数...]
+  go-image-search detect -q <图像> [-model <onnx>] [-lib <dylib>] [-out <可视化png>]  # 目标检测：圈出物体区域
   go-image-search segments -img <图像> [-out <可视化png>]   # 调试：查看区域划分
   go-image-search serve [-addr <host:port>] [-root <图像库目录>] [-index <索引文件>]  # iOS 风格 Web 界面
 
 分段参数: -threshold-pct <0~1> -factor <x> -min-area-ratio <r> -median <k> -connectivity <4|8>
 合并参数: -merge-dist <汉明距离阈值> -merge-color <颜色阈值> -no-merge  # 相似相邻区域合并为组合区域
 引力参数(检索): -gravity <bool> -gravity-min <保留区域数> -gravity-trigger <触发阈值> -gravity-additive <bool> -gravity-combine-few <阈值>  # 区域过多时引力聚合；区域过少时合并为整图辅助区域；查询阶段始终追加整图辅助区域
+检测参数: -model <onnx路径> -lib <onnxruntime动态库路径>  # 检测物体区域后裁剪，消除背景/文字干扰
 `)
 }
 
@@ -268,9 +273,11 @@ func runQuery(args []string) {
 	top := fs.Int("top", 5, "返回 top-N")
 	maxDist := fs.Int("maxdist", 12, "区域哈希最大汉明距离")
 	colorWeight := fs.Float64("color-weight", 0.1, "颜色相似度权重(0关闭)")
+	useDetect := fs.Bool("detect", false, "检测物体区域后裁剪，消除背景/文字干扰")
 	cfg := buildFlagSet(fs)
 	mc := mergeFlagSet(fs)
 	gc := gravityFlagSet(fs)
+	dc := detectFlagSet(fs)
 	fs.Parse(args)
 	// 查询阶段无条件追加整图辅助区域，提升整图级别的召回
 	gc.CombineAlways = true
@@ -288,6 +295,22 @@ func runQuery(args []string) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "加载查询图像失败: %v\n", err)
 		os.Exit(1)
+	}
+	// 如果启用检测，先裁剪出物体区域，消除背景色与文字干扰。
+	if *useDetect {
+		det, err := detect.NewDetector(*dc.model, *dc.lib)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "加载检测模型失败: %v\n", err)
+			os.Exit(1)
+		}
+		defer det.Close()
+		crop, err := det.Crop(img)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "检测失败: %v\n", err)
+			os.Exit(1)
+		}
+		img = crop
+		fmt.Printf("检测裁剪: 已裁剪至物体区域 %v\n", crop.Bounds())
 	}
 	// 对查询图像生成原图 + 骨架图两张衍生图分别检索，
 	// 任一衍生图与索引图像相似即认为该图像相似。
@@ -330,6 +353,74 @@ func runQuery(args []string) {
 }
 
 // visualize 在图像上叠加区域边界框，便于调试。
+// detectFlagSet registers ONNX model and onnxruntime library path flags.
+func detectFlagSet(fs *flag.FlagSet) *detectConfig {
+	return &detectConfig{
+		model: fs.String("model", detect.DefaultModelPath(), "ONNX 检测模型路径"),
+		lib:   fs.String("lib", detect.DefaultLibPath(), "onnxruntime 动态库路径"),
+	}
+}
+
+type detectConfig struct {
+	model *string
+	lib   *string
+}
+
+// runDetect runs the object detector on an image and prints / visualizes the
+// predicted bounding box.
+func runDetect(args []string) {
+	fs := flag.NewFlagSet("detect", flag.ExitOnError)
+	q := fs.String("q", "", "图像路径")
+	outPath := fs.String("out", "", "可视化输出路径（为空则仅打印坐标）")
+	dc := detectFlagSet(fs)
+	fs.Parse(args)
+
+	if *q == "" {
+		fmt.Fprintln(os.Stderr, "缺少 -q")
+		os.Exit(2)
+	}
+	img, err := imageproc.Load(*q)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "加载图像失败: %v\n", err)
+		os.Exit(1)
+	}
+	det, err := detect.NewDetector(*dc.model, *dc.lib)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "加载检测模型失败: %v\n", err)
+		os.Exit(1)
+	}
+	defer det.Close()
+
+	box, err := det.Detect(img)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "检测失败: %v\n", err)
+		os.Exit(1)
+	}
+	rect := box.PixelRect(img.Bounds().Dx(), img.Bounds().Dy())
+	fmt.Printf("检测框: cx=%.4f cy=%.4f w=%.4f h=%.4f  pixel=%v\n",
+		box.CX, box.CY, box.W, box.H, rect)
+
+	if *outPath != "" {
+		vis := image.NewRGBA(img.Bounds())
+		for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
+			for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
+				vis.Set(x, y, img.At(x, y))
+			}
+		}
+		drawBox(vis, rect, color.RGBA{255, 0, 0, 255})
+		data, err := imageproc.EncodePNG(vis)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "可视化失败: %v\n", err)
+			os.Exit(1)
+		}
+		if err := os.WriteFile(*outPath, data, 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "写入可视化失败: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("可视化已保存: %s\n", *outPath)
+	}
+}
+
 func runServe(args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	addr := fs.String("addr", "127.0.0.1:8080", "HTTP 监听地址")

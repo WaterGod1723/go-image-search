@@ -15,13 +15,13 @@ import (
 )
 
 // 索引分段参数：64-bit 哈希拆成 8 个 8-bit 段，每段翻转 ≤2 位生成变体，
-// 可保证召回汉明距离 ≤ 8×2 = 16 的全部条目（桶内再按 MaxDist 过滤）。
+// 可保证召回汉明距离 ≤ 8×3 = 24 的全部条目（桶内再按 MaxDist 过滤）。
 const (
 	segCount = 8
 	segBits  = 8
-	maxFlips = 2
+	maxFlips = 3
 	// 整图辅助区域（绿框）探针允许更多翻转：文字干扰/背景色变化会使哈希漂移，
-	// 需要更大的召回半径；其余区域保持 ≤2 翻转以控制候选数量。
+	// 需要更大的召回半径。
 	maxWholeFlips = 3
 )
 
@@ -436,6 +436,10 @@ func (ix *Index) SearchMulti(querySets [][]QueryRegion, opts SearchOptions) []Ma
 // pairDist 组合哈希、颜色、形状三个维度的相似度距离。
 // 哈希维度取“颜色哈希”与“结构哈希”中较近者——当颜色变化导致颜色哈希
 // 漂移时，仍可用稳定的结构哈希度量形状相似，从而容忍如 TEST8 的颜色变动。
+//
+// 整图辅助区域（双方 Global≥2.5）跳过形状权重项：整图的填充率/宽高比
+// 随裁剪/缩放而变（局部视图的整图区域填充率与原图差异大），不具备判别力，
+// 反而会惩罚正确的整图-整图匹配。颜色哈希已做极性归一化，足以度量整图相似。
 func pairDist(q QueryRegion, e RegionEntry, opts SearchOptions) float64 {
 	hd := phash.Hamming(q.Hash, e.Hash)
 	if q.Shape != 0 && e.Shape != 0 {
@@ -447,7 +451,7 @@ func pairDist(q QueryRegion, e RegionEntry, opts SearchOptions) float64 {
 	if opts.ColorWeight > 0 {
 		d += opts.ColorWeight * colorWeight01(q, e) * colorDist01(q.Color, e.Color) * 64
 	}
-	if opts.ShapeWeight > 0 {
+	if opts.ShapeWeight > 0 && !(q.Global >= 2.5 && e.Global >= 2.5) {
 		d += opts.ShapeWeight * shapeDist01(q, e) * 64
 	}
 	return d

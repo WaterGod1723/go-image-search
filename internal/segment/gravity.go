@@ -36,7 +36,7 @@ func DefaultGravityConfig() GravityConfig {
 		TriggerCount:  5,
 		Additive:      true,
 		CombineFew:    5,
-		CombineAlways: false,
+		CombineAlways: true,
 		FrameRatio:    0.9,
 	}
 }
@@ -249,6 +249,17 @@ func GlobalWeight(m MergedRegion) float64 {
 
 // MergeAll 将全部区域合并为一个整体组合区域（bbox 为成员之并，重算哈希与平均色）。
 // 用于最终区域数过少时构建一个"整图"辅助索引区域，返回的区域 Whole=true。
+//
+// 整图区域的颜色哈希在背景归一化后计算：局部视图查询常把不透明深色底叠加
+// 在原图透明底（pHash 渲染为白底）上，导致整图亮度结构整体反相、颜色哈希近
+// 互补（汉明距离 40+）。bgNormalize 把"边框主导暗底 + 内部含亮色图标"的
+// 图像（典型如深底局部视图）归一化为白底后再哈希，使这类背景反相的局部视图
+// 与原图整图哈希对齐、可召回且具备判别力（图标本身不变）。
+//
+// 触发条件严格：边框过半为暗（含透明）且内部存在足够亮像素（>150）才归一化。
+// 这精确命中"暗底亮图标"的局部视图（如 TEST11），而不会误伤"暗图标"图像
+// （如黑底深灰网格的 dashboard、深色线条图标 fact_check）——后者内部无亮像素，
+// 不触发归一化。归一化仅作用于整图辅助区域（Whole=true）。
 func MergeAll(src image.Image, regions []MergedRegion) MergedRegion {
 	all := cloneMerged(regions)
 	m := all[0]
@@ -256,7 +267,85 @@ func MergeAll(src image.Image, regions []MergedRegion) MergedRegion {
 		m = mergeTwoMerged(src, m, r)
 	}
 	m.Whole = true
+	if crop := cropRect(src, m.BBox); crop != nil {
+		m.Hash = phash.Hash(bgNormalize(crop))
+	}
 	return m
+}
+
+// bgNormalize 把"边框主导暗底 + 内部含亮色图标"的图像归一化为白底。
+// 边框过半为暗（lum<80 或 alpha=0 透明）且内部亮像素（lum>150）占比 ≥5%
+// 时，把全图暗像素（lum<80 或透明）替换为白；否则原样返回。
+// 这样仅"暗底亮图标"被归一为白底（与原图透明底渲染一致），而"暗图标"
+// 图像（内部无亮像素）不触发，避免抹除深色图标破坏其哈希。
+func bgNormalize(src image.Image) image.Image {
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w < 4 || h < 4 {
+		return src
+	}
+	dark := 0
+	total := 0
+	border := func(x, y int) {
+		_, _, _, a := src.At(b.Min.X+x, b.Min.Y+y).RGBA()
+		total++
+		if a == 0 {
+			dark++
+			return
+		}
+		r, g, bl, _ := src.At(b.Min.X+x, b.Min.Y+y).RGBA()
+		lum := (299*float64(r) + 587*float64(g) + 114*float64(bl)) / 1000 / 257
+		if lum < 80 {
+			dark++
+		}
+	}
+	for x := 0; x < w; x += 2 {
+		border(x, 0)
+		border(x, h-1)
+	}
+	for y := 0; y < h; y += 2 {
+		border(0, y)
+		border(w-1, y)
+	}
+	if total == 0 || dark*2 < total {
+		return src // 边框非暗底主导
+	}
+	// 内部亮像素占比
+	bright := 0
+	interior := 0
+	for y := 1; y < h-1; y++ {
+		for x := 1; x < w-1; x++ {
+			r, g, bl, a := src.At(b.Min.X+x, b.Min.Y+y).RGBA()
+			if a == 0 {
+				continue
+			}
+			interior++
+			lum := (299*float64(r) + 587*float64(g) + 114*float64(bl)) / 1000 / 257
+			if lum > 150 {
+				bright++
+			}
+		}
+	}
+	if interior == 0 || bright*20 < interior { // <5% 亮像素
+		return src // 非暗底亮图标（内部无亮像素，是暗图标）
+	}
+	out := image.NewRGBA(b)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			r, g, bl, a := src.At(b.Min.X+x, b.Min.Y+y).RGBA()
+			if a == 0 {
+				out.Set(b.Min.X+x, b.Min.Y+y, color.RGBA{255, 255, 255, 255})
+				continue
+			}
+			lum := (299*float64(r) + 587*float64(g) + 114*float64(bl)) / 1000 / 257
+			if lum < 80 {
+				out.Set(b.Min.X+x, b.Min.Y+y, color.RGBA{255, 255, 255, 255})
+			} else {
+				out.Set(b.Min.X+x, b.Min.Y+y, color.RGBA{uint8(r >> 8), uint8(g >> 8), uint8(bl >> 8), uint8(a >> 8)})
+			}
+		}
+	}
+	return out
 }
 
 // mergeTwoMerged 融合两个区域为一个组合区域（bbox 为成员之并，重算哈希）。

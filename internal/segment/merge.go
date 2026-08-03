@@ -227,9 +227,14 @@ func mergeCluster(src image.Image, members []int, byID map[int]RegionInfo) Merge
 	return mr
 }
 
-// structuralMask 生成颜色无关的结构掩码（灰度 → Otsu 二值，前景为黑）。
+// structuralMask 生成颜色无关的结构掩码（灰度 → 3×3 均值平滑 → Otsu 二值，前景为黑）。
 // 与 imageproc.StructuralMask 语义一致，供合并区域计算结构哈希使用，
 // 避免 segment 引入对 imageproc 的依赖。
+//
+// 二值前做 3×3 均值平滑：抑制裁剪边界/抗锯齿/纹理细节引入的逐像素噪声，
+// 使同一图标的局部视图（裁剪+缩放）与原图分块得到稳定一致的二值结构，
+// 从而让结构哈希（Shape）对裁剪/缩放稳健——这是局部视图检索召回的关键。
+// 对纯色块图标不影响（平滑后仍为单色，Otsu 不变）。
 func structuralMask(src image.Image) *image.Gray {
 	b := src.Bounds()
 	g := image.NewGray(b)
@@ -238,6 +243,7 @@ func structuralMask(src image.Image) *image.Gray {
 			g.Set(x, y, color.GrayModel.Convert(src.At(x, y)))
 		}
 	}
+	g = blurGray3(g)
 	hist := make([]int, 256)
 	for _, v := range g.Pix {
 		hist[v]++
@@ -279,6 +285,51 @@ func structuralMask(src image.Image) *image.Gray {
 		}
 	}
 	return out
+}
+
+// blurGray3 对灰度图做 3×3 均值平滑（边界采用镜像延拓），返回新图像。
+// 用于 structuralMask 二值化前抑制逐像素噪声，稳定结构哈希。
+func blurGray3(src *image.Gray) *image.Gray {
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w < 3 || h < 3 {
+		return src
+	}
+	stride := w
+	dst := image.NewGray(b)
+	at := func(x, y int) int {
+		if x < 0 {
+			x = -x
+		}
+		if x >= w {
+			x = 2*w - x - 2
+			if x < 0 {
+				x = 0
+			}
+		}
+		if y < 0 {
+			y = -y
+		}
+		if y >= h {
+			y = 2*h - y - 2
+			if y < 0 {
+				y = 0
+			}
+		}
+		return int(src.Pix[y*stride+x])
+	}
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			s := 0
+			for dy := -1; dy <= 1; dy++ {
+				for dx := -1; dx <= 1; dx++ {
+					s += at(x+dx, y+dy)
+				}
+			}
+			dst.Pix[y*stride+x] = uint8((s + 4) / 9) // 四舍五入
+		}
+	}
+	return dst
 }
 
 // regionAdjacency 从标签图提取相邻区域对（无向、去重）。

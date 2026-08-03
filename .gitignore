@@ -34,3 +34,10 @@ Thumbs.db
 
 # Runtime generated index
 index.bin
+
+# ML generated data & model artifacts (regenerate with ml/generate_data.py + ml/train.py)
+ml/data/
+ml/models/*.pt
+ml/onnxruntime/lib/
+ml/onnxruntime/include/
+test_pngs_trimmed/
