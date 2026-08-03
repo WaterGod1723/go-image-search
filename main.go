@@ -174,9 +174,10 @@ func runQuery(args []string) {
 		fmt.Fprintf(os.Stderr, "加载查询图像失败: %v\n", err)
 		os.Exit(1)
 	}
-	// 对查询图像生成原图 + 骨架图两张衍生图分别检索，
-	// 任一衍生图与索引图像相似即认为该图像相似。
-	querySets := make([][]index.QueryRegion, 0, 2)
+	// 对查询图像生成 原图 + 骨架图 分别检索；若检测到统一背景色与附属文字带，
+	// 再追加归一化裁剪内容的整图辅助区域（白底+主体，与图库透明底图标可比）。
+	// 任一衍生图的任一区域与索引图像相似即认为该图像相似。
+	querySets := make([][]index.QueryRegion, 0, 3)
 	for _, v := range imageproc.QueryVariants(img) {
 		hashes, err := hashImage(v, *cfg, *mc, *gc)
 		if err != nil {
@@ -184,6 +185,16 @@ func runQuery(args []string) {
 		}
 		qs := make([]index.QueryRegion, 0, len(hashes))
 		for _, h := range hashes {
+			qs = append(qs, index.QueryRegion{
+				Hash: h.Hash, Shape: h.Shape, Area: h.Area, Color: h.Color,
+				NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect, Global: h.Global,
+			})
+		}
+		querySets = append(querySets, qs)
+	}
+	if whole := imageproc.QueryNormalizedWholeHashes(img, *cfg, *mc, *gc); len(whole) > 0 {
+		qs := make([]index.QueryRegion, 0, len(whole))
+		for _, h := range whole {
 			qs = append(qs, index.QueryRegion{
 				Hash: h.Hash, Shape: h.Shape, Area: h.Area, Color: h.Color,
 				NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect, Global: h.Global,

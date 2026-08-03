@@ -71,9 +71,10 @@ func TestRealDatasetSearch(t *testing.T) {
 			t.Errorf("[%s] 加载失败: %v", filepath.Base(qf), err)
 			continue
 		}
-		// 生成 原图 + 骨架图 两组查询区域，用 SearchMulti 合并（与查询流程一致）。
+		// 生成 原图 + 骨架图 两组查询区域；若检测到统一背景色与附属文字带，
+		// 再追加归一化裁剪内容的整图辅助区域（白底+主体，与图库透明底图标可比）。
 		// 查询阶段启用引力聚合：区域过多时按引力模型聚合出辅助组合区域参与检索。
-		querySets := make([][]index.QueryRegion, 0, 2)
+		querySets := make([][]index.QueryRegion, 0, 3)
 		for _, v := range imageproc.QueryVariants(img) {
 			hashes, err := hashImage(v, cfg, segment.DefaultMergeConfig(), segment.DefaultGravityConfig())
 			if err != nil {
@@ -82,6 +83,16 @@ func TestRealDatasetSearch(t *testing.T) {
 			}
 			var qs []index.QueryRegion
 			for _, h := range hashes {
+				qs = append(qs, index.QueryRegion{
+					Hash: h.Hash, Shape: h.Shape, Area: h.Area, Color: h.Color,
+					NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect, Global: h.Global,
+				})
+			}
+			querySets = append(querySets, qs)
+		}
+		if whole := imageproc.QueryNormalizedWholeHashes(img, cfg, segment.DefaultMergeConfig(), segment.DefaultGravityConfig()); len(whole) > 0 {
+			var qs []index.QueryRegion
+			for _, h := range whole {
 				qs = append(qs, index.QueryRegion{
 					Hash: h.Hash, Shape: h.Shape, Area: h.Area, Color: h.Color,
 					NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect, Global: h.Global,
