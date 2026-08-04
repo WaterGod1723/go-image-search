@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"go-image-search/internal/detect"
 	"go-image-search/internal/imageproc"
 	"go-image-search/internal/index"
 	"go-image-search/internal/segment"
@@ -17,11 +18,23 @@ import (
 //   - 查询图: test_pngs_target/TEST<N>_FROM_<源图名>.png（为原图裁剪/缩放得到的局部视图）
 //
 // 断言：期望图必须命中 top-3。裁剪过狠或算法不足的用例会如实失败，用于驱动算法优化。
+// 检测模型可用时，索引与查询均使用目标检测模型识别主物体区域（Global=5.0 高权重），
+// 验证检测+感知哈松联合检索能否修复 TEST11 等背景色/文字干扰导致的失败用例。
 func TestRealDatasetSearch(t *testing.T) {
 	const (
 		libDir = "test_pngs"
 		qDir   = "test_pngs_target"
 	)
+
+	// 尝试加载检测模型；不可用则跳过检测，退回纯感知哈希检索。
+	det, err := detect.NewDetector(detect.DefaultModelPath(), detect.DefaultLibPath())
+	if err != nil {
+		det = nil
+		t.Logf("检测模型不可用(%v)，退回纯感知哈希检索", err)
+	} else {
+		defer det.Close()
+		t.Log("检测模型已加载，索引与查询均启用目标检测主区域")
+	}
 
 	files, err := imageproc.LoadSupported(libDir)
 	if err != nil {
@@ -38,15 +51,18 @@ func TestRealDatasetSearch(t *testing.T) {
 		if err != nil {
 			t.Fatalf("加载索引图片失败 %s: %v", f, err)
 		}
-		// 原图 + 骨架图分别入索引（与构建一致）。
-		// 索引阶段启用引力聚合：区域过多时聚合出辅助组合区域一并入索引，
-		// 与查询阶段的辅助查询区域对应，提升碎片化图像的召回。
 		for _, v := range imageproc.QueryVariants(img) {
 			hashes, err := hashImage(v, cfg, segment.DefaultMergeConfig(), segment.DefaultGravityConfig())
 			if err != nil {
 				t.Fatalf("索引图片处理失败 %s: %v", f, err)
 			}
 			ix.AddImage(f, hashes)
+		}
+		if det != nil {
+			detHashes := addDetectedRegion(nil, img, det)
+			if len(detHashes) > 0 {
+				ix.AddImage(f, detHashes)
+			}
 		}
 	}
 
@@ -73,7 +89,7 @@ func TestRealDatasetSearch(t *testing.T) {
 		}
 		// 生成 原图 + 骨架图 两组查询区域，用 SearchMulti 合并（与查询流程一致）。
 		// 查询阶段启用引力聚合：区域过多时按引力模型聚合出辅助组合区域参与检索。
-		querySets := make([][]index.QueryRegion, 0, 2)
+		querySets := make([][]index.QueryRegion, 0, 3)
 		for _, v := range imageproc.QueryVariants(img) {
 			hashes, err := hashImage(v, cfg, segment.DefaultMergeConfig(), segment.DefaultGravityConfig())
 			if err != nil {
@@ -88,6 +104,19 @@ func TestRealDatasetSearch(t *testing.T) {
 				})
 			}
 			querySets = append(querySets, qs)
+		}
+		if det != nil {
+			detHashes := addDetectedRegion(nil, img, det)
+			if len(detHashes) > 0 {
+				qs := make([]index.QueryRegion, 0, len(detHashes))
+				for _, h := range detHashes {
+					qs = append(qs, index.QueryRegion{
+						Hash: h.Hash, Shape: h.Shape, Area: h.Area, Color: h.Color,
+						NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect, Global: h.Global,
+					})
+				}
+				querySets = append(querySets, qs)
+			}
 		}
 		matches := ix.SearchMulti(querySets, index.SearchOptions{MaxDist: 12, ColorWeight: 0.1})
 

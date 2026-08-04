@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	"go-image-search/internal/detect"
 	"go-image-search/internal/imageproc"
 	"go-image-search/internal/index"
 	"go-image-search/internal/phash"
@@ -46,6 +47,7 @@ type Server struct {
 	mu    sync.Mutex
 	index *index.Index
 	build *buildJob
+	det   *detect.Detector
 }
 
 // buildJob 后台构建任务的进度状态。
@@ -75,6 +77,7 @@ type buildRequest struct {
 	MergeHashDist   int     `json:"mergeHashDist"`
 	MergeColorDist  float64 `json:"mergeColorDist"`
 	NoMerge         bool    `json:"noMerge"`
+	Detect          bool    `json:"detect"`
 }
 
 // New 创建一个新的 Web 服务器。
@@ -108,6 +111,21 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/segments.png", s.handleSegmentsPNG)
 	mux.HandleFunc("/api/segments.map.png", s.handleSegmentsMapPNG)
 	return mux
+}
+
+func (s *Server) getDetector() *detect.Detector {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.det != nil {
+		return s.det
+	}
+	d, err := detect.NewDetector(detect.DefaultModelPath(), detect.DefaultLibPath())
+	if err != nil {
+		s.logger.Printf("检测模型不可用: %v", err)
+		return nil
+	}
+	s.det = d
+	return s.det
 }
 
 // LoadIndex 从默认索引路径加载索引（若文件存在）。
@@ -205,6 +223,68 @@ func processRegions(img image.Image, cfg segment.Config, mergeCfg segment.MergeC
 	all = append(all, partition...)
 	all = append(all, aux...)
 	return res, partition, all, nil
+}
+
+// addDetectedRegion 使用目标检测模型识别图像中的主物体区域，
+// 将其作为高权重辅助区域追加到 hashes 列表（Global=2.0）。
+func addDetectedRegion(hashes []index.RegionHash, img image.Image, det *detect.Detector) []index.RegionHash {
+	if det == nil {
+		return hashes
+	}
+	box, err := det.Detect(img)
+	if err != nil {
+		return hashes
+	}
+	b := img.Bounds()
+	rect := box.PixelRect(b.Dx(), b.Dy())
+	if rect.Empty() || rect.Dx() < 2 || rect.Dy() < 2 {
+		return hashes
+	}
+	crop := detect.CropImage(img, rect)
+	if crop == nil {
+		return hashes
+	}
+	h := phash.Hash(segment.BgNormalize(crop))
+	shape := phash.Hash(imageproc.StructuralMask(crop))
+	bw, bh := rect.Dx(), rect.Dy()
+	var sumR, sumG, sumB, cnt int64
+	cb := crop.Bounds()
+	for y := cb.Min.Y; y < cb.Max.Y; y++ {
+		for x := cb.Min.X; x < cb.Max.X; x++ {
+			r, g, bl, a := crop.At(x, y).RGBA()
+			if a < 32768 {
+				continue
+			}
+			sumR += int64(r >> 8)
+			sumG += int64(g >> 8)
+			sumB += int64(bl >> 8)
+			cnt++
+		}
+	}
+	meanColor := color.RGBA{A: 255}
+	if cnt > 0 {
+		meanColor = color.RGBA{R: uint8(sumR / cnt), G: uint8(sumG / cnt), B: uint8(sumB / cnt), A: 255}
+	}
+	nextID := 0
+	for _, hh := range hashes {
+		if hh.RegionID > nextID {
+			nextID = hh.RegionID
+		}
+	}
+	hashes = append(hashes, index.RegionHash{
+		RegionID: nextID + 1,
+		Hash:     h,
+		Shape:    shape,
+		Area:     bw * bh,
+		BBox:     rect,
+		Color:    meanColor,
+		NX:       float64(rect.Min.X+rect.Max.X) / (2 * float64(b.Dx())),
+		NY:       float64(rect.Min.Y+rect.Max.Y) / (2 * float64(b.Dy())),
+		Fill:     1.0,
+		Aspect:   float64(bw) / float64(bh),
+		Global:   2.0,
+	})
+	return hashes
 }
 
 // hashImage 对图像做区域划分、感知哈希，并将相似相邻区域合并为组合区域。
@@ -355,6 +435,17 @@ func (s *Server) runBuild(job *buildJob, req buildRequest) {
 		mc.Enabled = false
 	}
 
+	var det *detect.Detector
+	if req.Detect {
+		d, err := detect.NewDetector(detect.DefaultModelPath(), detect.DefaultLibPath())
+		if err != nil {
+			s.logger.Printf("检测模型不可用: %v", err)
+		} else {
+			det = d
+			defer det.Close()
+		}
+	}
+
 	files, err := imageproc.LoadSupported(req.Dir)
 	if err != nil {
 		s.failBuild(job, err)
@@ -385,6 +476,12 @@ func (s *Server) runBuild(job *buildJob, req buildRequest) {
 				continue
 			}
 			ix.AddImage(id, hashes)
+		}
+		if det != nil {
+			detHashes := addDetectedRegion(nil, img, det)
+			if len(detHashes) > 0 {
+				ix.AddImage(id, detHashes)
+			}
 		}
 	}
 
@@ -479,11 +576,8 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 	cfg := segment.DefaultConfig()
 	grav := gravityConfigFromQuery(r.Form)
-	// 查询阶段无条件追加整图辅助区域，提升整图级别的召回
 	grav.CombineAlways = true
-	// 对查询图像生成原图 + 骨架图两张衍生图分别检索，
-	// 任一衍生图与索引图像相似即认为该图像相似。
-	querySets := make([][]index.QueryRegion, 0, 2)
+	querySets := make([][]index.QueryRegion, 0, 3)
 	for _, v := range imageproc.QueryVariants(img) {
 		hashes, err := hashImage(v, cfg, segment.DefaultMergeConfig(), grav)
 		if err != nil {
@@ -497,6 +591,21 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 		querySets = append(querySets, qs)
+	}
+	if r.FormValue("detect") == "true" {
+		if det := s.getDetector(); det != nil {
+			detHashes := addDetectedRegion(nil, img, det)
+			if len(detHashes) > 0 {
+				qs := make([]index.QueryRegion, 0, len(detHashes))
+				for _, h := range detHashes {
+					qs = append(qs, index.QueryRegion{
+						Hash: h.Hash, Shape: h.Shape, Area: h.Area, Color: h.Color,
+						NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect, Global: h.Global,
+					})
+				}
+				querySets = append(querySets, qs)
+			}
+		}
 	}
 	top := atoiDefault(r.FormValue("top"), 5)
 	if top <= 0 {
@@ -572,11 +681,12 @@ func (s *Server) handleImage(w http.ResponseWriter, r *http.Request) {
 }
 
 type regionJSON struct {
-	ID    int    `json:"id"`
-	Area  int    `json:"area"`
-	BBox  [4]int `json:"bbox"`
-	Color string `json:"color"`
-	Whole bool   `json:"whole"` // 是否为"整图"辅助区域（绿框）
+	ID       int    `json:"id"`
+	Area     int    `json:"area"`
+	BBox     [4]int `json:"bbox"`
+	Color    string `json:"color"`
+	Whole    bool   `json:"whole"`
+	Detected bool   `json:"detected"`
 }
 
 func (s *Server) handleSegments(w http.ResponseWriter, r *http.Request) {
@@ -602,6 +712,52 @@ func (s *Server) handleSegments(w http.ResponseWriter, r *http.Request) {
 			Whole: reg.Whole,
 		})
 	}
+	if q.Get("detect") == "true" {
+		if det := s.getDetector(); det != nil {
+			if box, err := det.Detect(img); err == nil {
+				b := img.Bounds()
+				rect := box.PixelRect(b.Dx(), b.Dy())
+				if !rect.Empty() && rect.Dx() >= 2 && rect.Dy() >= 2 {
+					crop := detect.CropImage(img, rect)
+					var meanColor color.RGBA
+					if crop != nil {
+						var sumR, sumG, sumB, cnt int64
+						cb := crop.Bounds()
+						for y := cb.Min.Y; y < cb.Max.Y; y++ {
+							for x := cb.Min.X; x < cb.Max.X; x++ {
+								cr, cg, cbl, a := crop.At(x, y).RGBA()
+								if a < 32768 {
+									continue
+								}
+								sumR += int64(cr >> 8)
+								sumG += int64(cg >> 8)
+								sumB += int64(cbl >> 8)
+								cnt++
+							}
+						}
+						if cnt > 0 {
+							meanColor = color.RGBA{R: uint8(sumR / cnt), G: uint8(sumG / cnt), B: uint8(sumB / cnt), A: 255}
+						} else {
+							meanColor = color.RGBA{A: 255}
+						}
+					}
+					nextID := 0
+					for _, r := range regions {
+						if r.ID > nextID {
+							nextID = r.ID
+						}
+					}
+					regions = append(regions, regionJSON{
+						ID:       nextID + 1,
+						Area:     rect.Dx() * rect.Dy(),
+						BBox:     [4]int{rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y},
+						Color:    fmt.Sprintf("#%02x%02x%02x", meanColor.R, meanColor.G, meanColor.B),
+						Detected: true,
+					})
+				}
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"width":   res.Width,
 		"height":  res.Height,
@@ -622,11 +778,23 @@ func (s *Server) handleSegmentsPNG(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	var detRect *image.Rectangle
+	if q.Get("detect") == "true" {
+		if det := s.getDetector(); det != nil {
+			if box, err := det.Detect(img); err == nil {
+				b := img.Bounds()
+				rect := box.PixelRect(b.Dx(), b.Dy())
+				if !rect.Empty() && rect.Dx() >= 2 && rect.Dy() >= 2 {
+					detRect = &rect
+				}
+			}
+		}
+	}
 	var vis *image.RGBA
 	if q.Get("mode") == "fill" {
 		vis = visualizeFill(res, partition, img)
 	} else {
-		vis = visualize(partition, all[len(partition):], img)
+		vis = visualize(partition, all[len(partition):], img, detRect)
 	}
 	data, err := imageproc.EncodePNG(vis)
 	if err != nil {
@@ -678,7 +846,7 @@ func (s *Server) loadImageForSegments(w http.ResponseWriter, r *http.Request) (i
 
 // visualize 在图像上叠加区域边界框（检索实际使用的区域，含引力辅助组合区域）。
 // 划分区域用红色标注，引力辅助组合区域用蓝色标注，合并"整图"辅助区域用绿色标注。
-func visualize(partition, aux []segment.MergedRegion, src image.Image) *image.RGBA {
+func visualize(partition, aux []segment.MergedRegion, src image.Image, detRect *image.Rectangle) *image.RGBA {
 	b := src.Bounds()
 	dst := image.NewRGBA(b)
 	for y := b.Min.Y; y < b.Max.Y; y++ {
@@ -695,6 +863,9 @@ func visualize(partition, aux []segment.MergedRegion, src image.Image) *image.RG
 			c = color.RGBA{0, 255, 0, 255}
 		}
 		drawBox(dst, reg.BBox, c)
+	}
+	if detRect != nil {
+		drawBox(dst, *detRect, color.RGBA{255, 165, 0, 255})
 	}
 	return dst
 }

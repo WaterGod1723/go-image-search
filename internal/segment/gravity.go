@@ -268,17 +268,17 @@ func MergeAll(src image.Image, regions []MergedRegion) MergedRegion {
 	}
 	m.Whole = true
 	if crop := cropRect(src, m.BBox); crop != nil {
-		m.Hash = phash.Hash(bgNormalize(crop))
+		m.Hash = phash.Hash(BgNormalize(crop))
 	}
 	return m
 }
 
-// bgNormalize 把"边框主导暗底 + 内部含亮色图标"的图像归一化为白底。
+// BgNormalize 把"边框主导暗底 + 内部含亮色图标"的图像归一化为白底。
 // 边框过半为暗（lum<80 或 alpha=0 透明）且内部亮像素（lum>150）占比 ≥5%
 // 时，把全图暗像素（lum<80 或透明）替换为白；否则原样返回。
 // 这样仅"暗底亮图标"被归一为白底（与原图透明底渲染一致），而"暗图标"
 // 图像（内部无亮像素）不触发，避免抹除深色图标破坏其哈希。
-func bgNormalize(src image.Image) image.Image {
+func BgNormalize(src image.Image) image.Image {
 	b := src.Bounds()
 	w, h := b.Dx(), b.Dy()
 	if w < 4 || h < 4 {

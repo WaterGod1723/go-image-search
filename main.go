@@ -43,7 +43,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `图片反向搜索（感知哈希 + 区域划分）
 
 用法:
-  go-image-search build -dir <图像库目录> -out <索引文件> [分段参数...]
+  go-image-search build -dir <图像库目录> -out <索引文件> [-detect] [检测参数...] [分段参数...]
   go-image-search query -index <索引文件> -q <查询图像> [-top N] [-maxdist D] [-detect] [检测参数...]
   go-image-search detect -q <图像> [-model <onnx>] [-lib <dylib>] [-out <可视化png>]  # 目标检测：圈出物体区域
   go-image-search segments -img <图像> [-out <可视化png>]   # 调试：查看区域划分
@@ -52,7 +52,7 @@ func usage() {
 分段参数: -threshold-pct <0~1> -factor <x> -min-area-ratio <r> -median <k> -connectivity <4|8>
 合并参数: -merge-dist <汉明距离阈值> -merge-color <颜色阈值> -no-merge  # 相似相邻区域合并为组合区域
 引力参数(检索): -gravity <bool> -gravity-min <保留区域数> -gravity-trigger <触发阈值> -gravity-additive <bool> -gravity-combine-few <阈值>  # 区域过多时引力聚合；区域过少时合并为整图辅助区域；查询阶段始终追加整图辅助区域
-检测参数: -model <onnx路径> -lib <onnxruntime动态库路径>  # 检测物体区域后裁剪，消除背景/文字干扰
+检测参数: -model <onnx路径> -lib <onnxruntime动态库路径>  # 检测主物体区域，作为高权重区域参与检索
 `)
 }
 
@@ -214,17 +214,95 @@ func hashImage(img image.Image, cfg segment.Config, mergeCfg segment.MergeConfig
 	return hashes, nil
 }
 
+// addDetectedRegion 使用目标检测模型识别图像中的主物体区域，
+// 将其作为高权重辅助区域追加到 hashes 列表。
+// 检测区域 Global=2.0（高于单区域 1.0，低于整图辅助 3.0），在相似度匹配中
+// 占中等偏重权重。作为独立查询变体使用时，SearchMulti 取最高分，
+// 检测不准不会拖累整体分数，检测准确则能提升召回。
+// det 为 nil 时直接返回原列表，不影响无检测场景。
+func addDetectedRegion(hashes []index.RegionHash, img image.Image, det *detect.Detector) []index.RegionHash {
+	if det == nil {
+		return hashes
+	}
+	box, err := det.Detect(img)
+	if err != nil {
+		return hashes
+	}
+	b := img.Bounds()
+	rect := box.PixelRect(b.Dx(), b.Dy())
+	if rect.Empty() || rect.Dx() < 2 || rect.Dy() < 2 {
+		return hashes
+	}
+	crop := detect.CropImage(img, rect)
+	if crop == nil {
+		return hashes
+	}
+	h := phash.Hash(segment.BgNormalize(crop))
+	shape := phash.Hash(imageproc.StructuralMask(crop))
+	bw, bh := rect.Dx(), rect.Dy()
+	var sumR, sumG, sumB, cnt int64
+	cb := crop.Bounds()
+	for y := cb.Min.Y; y < cb.Max.Y; y++ {
+		for x := cb.Min.X; x < cb.Max.X; x++ {
+			r, g, bl, a := crop.At(x, y).RGBA()
+			if a < 32768 {
+				continue
+			}
+			sumR += int64(r >> 8)
+			sumG += int64(g >> 8)
+			sumB += int64(bl >> 8)
+			cnt++
+		}
+	}
+	meanColor := color.RGBA{A: 255}
+	if cnt > 0 {
+		meanColor = color.RGBA{R: uint8(sumR / cnt), G: uint8(sumG / cnt), B: uint8(sumB / cnt), A: 255}
+	}
+	nextID := 0
+	for _, hh := range hashes {
+		if hh.RegionID > nextID {
+			nextID = hh.RegionID
+		}
+	}
+	hashes = append(hashes, index.RegionHash{
+		RegionID: nextID + 1,
+		Hash:     h,
+		Shape:    shape,
+		Area:     bw * bh,
+		BBox:     rect,
+		Color:    meanColor,
+		NX:       float64(rect.Min.X+rect.Max.X) / (2 * float64(b.Dx())),
+		NY:       float64(rect.Min.Y+rect.Max.Y) / (2 * float64(b.Dy())),
+		Fill:     1.0,
+		Aspect:   float64(bw) / float64(bh),
+		Global:   2.0,
+	})
+	return hashes
+}
+
 func runBuild(args []string) {
 	fs := flag.NewFlagSet("build", flag.ExitOnError)
 	dir := fs.String("dir", "", "图像库目录")
 	out := fs.String("out", "index.bin", "输出索引文件")
 	cfg := buildFlagSet(fs)
 	mc := mergeFlagSet(fs)
+	useDetect := fs.Bool("detect", false, "使用目标检测模型识别主物体区域，赋予高权重")
+	dc := detectFlagSet(fs)
 	fs.Parse(args)
 
 	if *dir == "" {
 		fmt.Fprintln(os.Stderr, "缺少 -dir")
 		os.Exit(2)
+	}
+	var det *detect.Detector
+	if *useDetect {
+		d, err := detect.NewDetector(*dc.model, *dc.lib)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "加载检测模型失败: %v\n", err)
+			os.Exit(1)
+		}
+		det = d
+		defer det.Close()
 	}
 	files, err := imageproc.LoadSupported(*dir)
 	if err != nil {
@@ -256,6 +334,13 @@ func runBuild(args []string) {
 			ix.AddImage(id, hashes)
 			total += len(hashes)
 		}
+		if det != nil {
+			detHashes := addDetectedRegion(nil, img, det)
+			if len(detHashes) > 0 {
+				ix.AddImage(id, detHashes)
+				total += len(detHashes)
+			}
+		}
 		fmt.Printf("[%d/%d] %s (%d 区域, 含骨架)\n", i+1, len(files), id, total)
 	}
 
@@ -273,7 +358,7 @@ func runQuery(args []string) {
 	top := fs.Int("top", 5, "返回 top-N")
 	maxDist := fs.Int("maxdist", 12, "区域哈希最大汉明距离")
 	colorWeight := fs.Float64("color-weight", 0.1, "颜色相似度权重(0关闭)")
-	useDetect := fs.Bool("detect", false, "检测物体区域后裁剪，消除背景/文字干扰")
+	useDetect := fs.Bool("detect", false, "使用目标检测模型识别主物体区域，赋予高权重")
 	cfg := buildFlagSet(fs)
 	mc := mergeFlagSet(fs)
 	gc := gravityFlagSet(fs)
@@ -296,25 +381,20 @@ func runQuery(args []string) {
 		fmt.Fprintf(os.Stderr, "加载查询图像失败: %v\n", err)
 		os.Exit(1)
 	}
-	// 如果启用检测，先裁剪出物体区域，消除背景色与文字干扰。
+	// 如果启用检测，将检测到的主物体区域作为高权重区域追加到查询区域集合。
+	var det *detect.Detector
 	if *useDetect {
-		det, err := detect.NewDetector(*dc.model, *dc.lib)
+		d, err := detect.NewDetector(*dc.model, *dc.lib)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "加载检测模型失败: %v\n", err)
 			os.Exit(1)
 		}
+		det = d
 		defer det.Close()
-		crop, err := det.Crop(img)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "检测失败: %v\n", err)
-			os.Exit(1)
-		}
-		img = crop
-		fmt.Printf("检测裁剪: 已裁剪至物体区域 %v\n", crop.Bounds())
 	}
 	// 对查询图像生成原图 + 骨架图两张衍生图分别检索，
 	// 任一衍生图与索引图像相似即认为该图像相似。
-	querySets := make([][]index.QueryRegion, 0, 2)
+	querySets := make([][]index.QueryRegion, 0, 3)
 	for _, v := range imageproc.QueryVariants(img) {
 		hashes, err := hashImage(v, *cfg, *mc, *gc)
 		if err != nil {
@@ -328,6 +408,19 @@ func runQuery(args []string) {
 			})
 		}
 		querySets = append(querySets, qs)
+	}
+	if det != nil {
+		detHashes := addDetectedRegion(nil, img, det)
+		if len(detHashes) > 0 {
+			qs := make([]index.QueryRegion, 0, len(detHashes))
+			for _, h := range detHashes {
+				qs = append(qs, index.QueryRegion{
+					Hash: h.Hash, Shape: h.Shape, Area: h.Area, Color: h.Color,
+					NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect, Global: h.Global,
+				})
+			}
+			querySets = append(querySets, qs)
+		}
 	}
 	matches := ix.SearchMulti(querySets, index.SearchOptions{MaxDist: *maxDist, ColorWeight: *colorWeight})
 

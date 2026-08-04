@@ -151,6 +151,7 @@ async function doSearch() {
   fd.append('top', segVal('#seg-top'));
   fd.append('maxdist', maxdistRange.value);
   fd.append('colorWeight', colorRange.value);
+  if ($('#search-detect').checked) fd.append('detect', 'true');
 
   $('#search-busy').hidden = false;
   $('#btn-search').disabled = true;
@@ -461,6 +462,7 @@ $('#btn-seg').addEventListener('click', async () => {
     connectivity: segVal('#seg-conn2'),
     mode: segVal('#seg-mode'),
   });
+  if ($('#seg-detect').checked) segQuery.set('detect', 'true');
   $('#seg-busy').hidden = false;
   $('#btn-seg').disabled = true;
   try {
@@ -481,7 +483,7 @@ $('#btn-seg').addEventListener('click', async () => {
     data.regions.forEach(r => {
       const div = document.createElement('div');
       div.className = 'rr';
-      const tag = r.whole ? '<span class="tag tag-whole">整图辅助</span>' : '';
+      const tag = r.whole ? '<span class="tag tag-whole">整图辅助</span>' : r.detected ? '<span class="tag tag-detected">检测区域</span>' : '';
       div.innerHTML =
         '<span><span class="dot" style="background:' + esc(r.color) + '"></span>区域 #' + r.id + tag + '</span>' +
         '<span>面积 ' + r.area + ' · bbox ' + r.bbox.join(',') + '</span>';
@@ -516,7 +518,7 @@ segImg.addEventListener('mousemove', e => {
     const r = segRegionsById.get(id);
     showSegTip(e.clientX, e.clientY,
       '<span class="dot" style="background:' + esc(r.color) + '"></span>' +
-      '区域 #' + r.id + (r.whole ? ' <span class="tag tag-whole">整图辅助</span>' : '') +
+      '区域 #' + r.id + (r.whole ? ' <span class="tag tag-whole">整图辅助</span>' : r.detected ? ' <span class="tag tag-detected">检测区域</span>' : '') +
       ' · 面积 ' + r.area + ' · bbox ' + r.bbox.join(','));
   } else {
     hideSegTip();
