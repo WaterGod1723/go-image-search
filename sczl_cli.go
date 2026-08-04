@@ -64,6 +64,8 @@ func runSCZLQuery(args []string) {
 	prefilter := fs.Int("prefilter", 200, "FD 全局粗排保留候选数")
 	fdCut := fs.Float64("fd-cut", 0.4, "FD 相似度截断(低于此值淘汰)")
 	scPts := fs.Int("sc-points", 48, "SC 匈牙利匹配每侧点数上限")
+	adaptive := fs.Bool("adaptive", true, "启用自适应权重(基于各维度得分分布动态调整)")
+	noAdaptive := fs.Bool("no-adaptive", false, "禁用自适应权重(回退固定先验)")
 	fs.Parse(args)
 
 	if *q == "" {
@@ -85,12 +87,17 @@ func runSCZLQuery(args []string) {
 		fmt.Fprintln(os.Stderr, "无法从查询图像提取前景")
 		os.Exit(1)
 	}
-	matches := ix.Query(qd, sczl.Options{
-		TopK:        *top,
-		FDPreFilter: *prefilter,
-		FDCut:       *fdCut,
-		SCMaxPoints: *scPts,
-	})
+	opts := sczl.DefaultOptions()
+	opts.TopK = *top
+	opts.FDPreFilter = *prefilter
+	opts.FDCut = *fdCut
+	opts.SCMaxPoints = *scPts
+	if *noAdaptive {
+		opts.Adaptive = false
+	} else {
+		opts.Adaptive = *adaptive
+	}
+	matches := ix.Query(qd, opts)
 	if len(matches) == 0 {
 		fmt.Println("无匹配结果")
 		return

@@ -8,15 +8,15 @@ import (
 	"testing"
 
 	"go-image-search/internal/imageproc"
-	"go-image-search/internal/index"
-	"go-image-search/internal/segment"
+	"go-image-search/internal/sczl"
 )
 
-// TestRealDatasetSearch 使用真实测试图片做端到端检索：
+// TestRealDatasetSearch 使用真实测试图片做端到端 SCZL 检索：
 //   - 索引库: test_pngs
 //   - 查询图: test_pngs_target/TEST<N>_FROM_<源图名>.png（为原图裁剪/缩放得到的局部视图）
 //
-// 断言：期望图必须命中 top-3。裁剪过狠或算法不足的用例会如实失败，用于驱动算法优化。
+// 断言：期望图必须命中 top-3。默认启用自适应权重（基于各维度得分分布动态调整，
+// 而非写死固定权重）。
 func TestRealDatasetSearch(t *testing.T) {
 	const (
 		libDir = "test_pngs"
@@ -31,23 +31,18 @@ func TestRealDatasetSearch(t *testing.T) {
 		t.Fatalf("索引库 %s 中无支持的图片", libDir)
 	}
 
-	ix := index.New()
-	cfg := segment.DefaultConfig()
+	ix := sczl.New()
 	for _, f := range files {
-		img, err := loadTestImage(f)
+		img, err := imageproc.Load(f)
 		if err != nil {
 			t.Fatalf("加载索引图片失败 %s: %v", f, err)
 		}
-		// 原图 + 骨架图分别入索引（与构建一致）。
-		// 索引阶段启用引力聚合：区域过多时聚合出辅助组合区域一并入索引，
-		// 与查询阶段的辅助查询区域对应，提升碎片化图像的召回。
-		for _, v := range imageproc.QueryVariants(img) {
-			hashes, err := hashImage(v, cfg, segment.DefaultMergeConfig(), segment.DefaultGravityConfig())
-			if err != nil {
-				t.Fatalf("索引图片处理失败 %s: %v", f, err)
-			}
-			ix.AddImage(f, hashes)
+		d := sczl.Extract(img)
+		if !d.Valid {
+			t.Logf("[跳过] 无效描述子: %s", f)
+			continue
 		}
+		ix.AddImage(f, d)
 	}
 
 	qfiles, err := filepath.Glob(filepath.Join(qDir, "*.png"))
@@ -55,6 +50,7 @@ func TestRealDatasetSearch(t *testing.T) {
 		t.Fatalf("查询目录 %s 中无图片", qDir)
 	}
 
+	opts := sczl.DefaultOptions() // 默认 Adaptive=true，启用自适应权重
 	re := regexp.MustCompile(`^TEST\d+_FROM_(.+?)\.png$`)
 	pass, total := 0, 0
 	for _, qf := range qfiles {
@@ -66,46 +62,22 @@ func TestRealDatasetSearch(t *testing.T) {
 		want := normalizeLibName(m[1]) + ".png"
 		total++
 
-		img, err := loadTestImage(qf)
+		img, err := imageproc.Load(qf)
 		if err != nil {
 			t.Errorf("[%s] 加载失败: %v", filepath.Base(qf), err)
 			continue
 		}
-		// 生成 原图 + 骨架图 两组查询区域；若检测到统一背景色与附属文字带，
-		// 再追加归一化裁剪内容的整图辅助区域（白底+主体，与图库透明底图标可比）。
-		// 查询阶段启用引力聚合：区域过多时按引力模型聚合出辅助组合区域参与检索。
-		querySets := make([][]index.QueryRegion, 0, 3)
-		for _, v := range imageproc.QueryVariants(img) {
-			hashes, err := hashImage(v, cfg, segment.DefaultMergeConfig(), segment.DefaultGravityConfig())
-			if err != nil {
-				t.Errorf("[%s] 处理失败: %v", filepath.Base(qf), err)
-				continue
-			}
-			var qs []index.QueryRegion
-			for _, h := range hashes {
-				qs = append(qs, index.QueryRegion{
-					Hash: h.Hash, Shape: h.Shape, Area: h.Area, Color: h.Color,
-					NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect, Global: h.Global,
-				})
-			}
-			querySets = append(querySets, qs)
+		qd := sczl.Extract(img)
+		if !qd.Valid {
+			t.Errorf("[%s] 无法提取前景", filepath.Base(qf))
+			continue
 		}
-		if whole := imageproc.QueryNormalizedWholeHashes(img, cfg, segment.DefaultMergeConfig(), segment.DefaultGravityConfig()); len(whole) > 0 {
-			var qs []index.QueryRegion
-			for _, h := range whole {
-				qs = append(qs, index.QueryRegion{
-					Hash: h.Hash, Shape: h.Shape, Area: h.Area, Color: h.Color,
-					NX: h.NX, NY: h.NY, Fill: h.Fill, Aspect: h.Aspect, Global: h.Global,
-				})
-			}
-			querySets = append(querySets, qs)
-		}
-		matches := ix.SearchMulti(querySets, index.SearchOptions{MaxDist: 12, ColorWeight: 0.1})
+		matches := ix.Query(qd, opts)
 
 		gotRank, gotScore := -1, 0.0
-		for i, m := range matches {
-			if filepath.Base(m.ImageID) == want {
-				gotRank, gotScore = i, m.Score
+		for i, mm := range matches {
+			if filepath.Base(mm.ImageID) == want {
+				gotRank, gotScore = i, mm.Score
 				break
 			}
 		}

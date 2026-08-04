@@ -76,6 +76,18 @@ type Options struct {
 	FDPreFilter int     // 全局召回后保留的候选数，<=0 取 200
 	FDCut       float64 // 全局相似度截断（低于此值直接淘汰），<=0 取 0.4
 	SCMaxPoints int     // SC 匹配时每侧采样点数上限（控制匈牙利规模），<=0 取 48
+
+	// 自适应权重：基于 query 在精排候选集上的各维度得分分布动态调整，
+	// 而非写死 OccWeight..FDWeight。某维度"头部与主体分离越明显"
+	// （top1 显著高于 top2..topK 均值）说明对当前 query 区分度越强，给更高权重。
+	// final_w(d) = clip(α·prior_norm(d) + (1-α)·softmax(disc/T)(d), lo, hi)，再归一化。
+	// 关闭（Adaptive=false）时退回 OccWeight..FDWeight 的固定先验权重。
+	Adaptive      bool    // 是否启用自适应权重
+	AdaptiveAlpha float64 // 先验权重占比，<=0 取 0.5
+	AdaptiveTemp  float64 // softmax 温度（越大越平滑），<=0 取 1.0
+	AdaptiveK     int     // 计算区分度时取前 K 个候选，<=0 取 10
+	AdaptiveLo    float64 // 单维度权重下限，<=0 取 0.05
+	AdaptiveHi    float64 // 单维度权重上限，<=0 取 0.5
 }
 
 // DefaultOptions 推荐默认参数。
@@ -91,6 +103,12 @@ func DefaultOptions() Options {
 		FDPreFilter: 200,
 		FDCut:       0.4,
 		SCMaxPoints: 48,
+		Adaptive:      true,
+		AdaptiveAlpha: 0.5,
+		AdaptiveTemp:  1.0,
+		AdaptiveK:     10,
+		AdaptiveLo:    0.05,
+		AdaptiveHi:    0.5,
 	}
 }
 

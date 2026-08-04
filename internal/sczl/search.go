@@ -138,6 +138,12 @@ type candidate struct {
 	g   float64 // 全局相似度
 }
 
+// rerank 精排候选条目：携带各维度相似度得分，供自适应权重计算与融合打分。
+type rerank struct {
+	idx                         int
+	occ, ncc, reg, hog, sc, fd float64
+}
+
 // scSolidityThr 实度低于此值视为镂空/碎片化，SC 匹配置零（轮廓不可靠）。
 const scSolidityThr = 0.4
 
@@ -208,7 +214,8 @@ func (ix *Index) Query(q Descriptor, opts Options) []Match {
 	}
 
 	// 2) 精排：占据栅格 + NCC + 区域匹配 + HOG + SC + FD。
-	matches := make([]Match, 0, len(cands))
+	//    先收集各候选的 6 维得分，再按自适应权重（若启用）融合打分。
+	reranks := make([]rerank, 0, len(cands))
 	for _, c := range cands {
 		e := ix.Entries[c.idx]
 		occ := occSim(q, e)
@@ -223,14 +230,27 @@ func (ix *Index) Query(q Descriptor, opts Options) []Match {
 				scSimVal = scSimilarity(cost, assign)
 			}
 		}
-		fdSim := c.g
-		score := wOcc*occ + wNCC*ncc + wReg*reg + wHOG*hog + wFD*fdSim + wSC*scSimVal
+		reranks = append(reranks, rerank{
+			idx: c.idx, occ: occ, ncc: ncc, reg: reg, hog: hog, sc: scSimVal, fd: c.g,
+		})
+	}
+
+	// 融合权重：启用自适应时按候选集各维度得分分布动态计算，否则用固定先验。
+	awOcc, awNCC, awReg, awHOG, awSC, awFD := wOcc, wNCC, wReg, wHOG, wSC, wFD
+	if opts.Adaptive && len(reranks) >= 3 {
+		awOcc, awNCC, awReg, awHOG, awSC, awFD = adaptiveWeights(reranks, opts)
+	}
+
+	matches := make([]Match, 0, len(reranks))
+	for _, r := range reranks {
+		e := ix.Entries[r.idx]
+		score := awOcc*r.occ + awNCC*r.ncc + awReg*r.reg + awHOG*r.hog + awFD*r.fd + awSC*r.sc
 		matches = append(matches, Match{
 			ImageID: e.ImageID,
 			Score:   score,
-			FDSim:   fdSim,
-			SCSim:   scSimVal,
-			HOGSim:  hog,
+			FDSim:   r.fd,
+			SCSim:   r.sc,
+			HOGSim:  r.hog,
 		})
 	}
 
@@ -244,4 +264,163 @@ func (ix *Index) Query(q Descriptor, opts Options) []Match {
 		matches = matches[:opts.TopK]
 	}
 	return matches
+}
+
+// adaptiveWeights 基于 query 在精排候选集上的各维度得分分布，计算自适应融合权重。
+//
+// 直觉：某维度"头部与主体分离越明显"（top1 显著高于 top2..topK 的均值），
+// 说明该维度对当前 query 区分度越强，应给更高权重；各候选得分挤在一起、
+// 差值很小的维度区分度弱，降权。用相邻两点差值太容易被单个噪声样本扰动，
+// 故改用"top1 相对 top2..topK 主体的 z-score"作为区分度信号，更稳健。
+//
+//	对每个维度 d 计算 z-score（无量纲，消除各维度量纲差异）：
+//	  disc(d) = (top1 - mean(top2..topK)) / std(top2..topK)
+//	再 softmax(disc/T) 得到自适应权重分布，与先验固定权重按 α 混合、上下界裁剪后归一化：
+//	  final_w(d) = clip(α·prior_norm(d) + (1-α)·softmax(disc/T)(d), lo, hi)
+//	所有维度 disc ≤ 0（无正区分度）时回退先验，保证退化安全。
+func adaptiveWeights(rs []rerank, opts Options) (wOcc, wNCC, wReg, wHOG, wSC, wFD float64) {
+	alpha := opts.AdaptiveAlpha
+	if alpha <= 0 {
+		alpha = 0.5
+	}
+	temp := opts.AdaptiveTemp
+	if temp <= 0 {
+		temp = 1.0
+	}
+	k := opts.AdaptiveK
+	if k <= 0 {
+		k = 10
+	}
+	lo := opts.AdaptiveLo
+	if lo <= 0 {
+		lo = 0.05
+	}
+	hi := opts.AdaptiveHi
+	if hi <= 0 {
+		hi = 0.5
+	}
+
+	const dims = 6
+	prior := [dims]float64{opts.OccWeight, opts.NccWeight, opts.RegWeight, opts.HogWeight, opts.SCWeight, opts.FDWeight}
+	pSum := 0.0
+	for _, p := range prior {
+		pSum += p
+	}
+	if pSum <= 0 {
+		pSum = 1
+	}
+	var pNorm [dims]float64
+	for d := 0; d < dims; d++ {
+		pNorm[d] = prior[d] / pSum
+	}
+
+	// 收集各维度得分列。
+	var cols [dims][]float64
+	for d := 0; d < dims; d++ {
+		cols[d] = make([]float64, len(rs))
+	}
+	for i, r := range rs {
+		cols[0][i] = r.occ
+		cols[1][i] = r.ncc
+		cols[2][i] = r.reg
+		cols[3][i] = r.hog
+		cols[4][i] = r.sc
+		cols[5][i] = r.fd
+	}
+
+	var disc [dims]float64
+	hasPos := false
+	for d := 0; d < dims; d++ {
+		s := append([]float64(nil), cols[d]...)
+		sort.Sort(sort.Reverse(sort.Float64Slice(s)))
+		kk := k
+		if kk > len(s) {
+			kk = len(s)
+		}
+		if kk < 3 {
+			disc[d] = 0
+			continue
+		}
+		top1 := s[0]
+		rest := s[1:kk]
+		mean, std := meanStd(rest)
+		if std <= 1e-9 {
+			disc[d] = 0
+			continue
+		}
+		z := (top1 - mean) / std
+		if z < 0 {
+			z = 0
+		}
+		disc[d] = z
+		if z > 0 {
+			hasPos = true
+		}
+	}
+
+	// 无正区分度：回退先验。
+	if !hasPos {
+		return pNorm[0], pNorm[1], pNorm[2], pNorm[3], pNorm[4], pNorm[5]
+	}
+
+	// softmax(disc/T)（数值稳定版：减最大值）。
+	maxZ := 0.0
+	for _, z := range disc {
+		if z > maxZ {
+			maxZ = z
+		}
+	}
+	expSum := 0.0
+	var expZ [dims]float64
+	for d := 0; d < dims; d++ {
+		expZ[d] = math.Exp((disc[d] - maxZ) / temp)
+		expSum += expZ[d]
+	}
+	if expSum <= 0 {
+		expSum = 1
+	}
+	var adaptive [dims]float64
+	for d := 0; d < dims; d++ {
+		adaptive[d] = expZ[d] / expSum
+	}
+
+	// α·先验 + (1-α)·自适应，裁剪后归一化。
+	var w [dims]float64
+	wSum := 0.0
+	for d := 0; d < dims; d++ {
+		v := alpha*pNorm[d] + (1-alpha)*adaptive[d]
+		if v < lo {
+			v = lo
+		} else if v > hi {
+			v = hi
+		}
+		w[d] = v
+		wSum += v
+	}
+	if wSum <= 0 {
+		wSum = 1
+	}
+	for d := 0; d < dims; d++ {
+		w[d] /= wSum
+	}
+	return w[0], w[1], w[2], w[3], w[4], w[5]
+}
+
+// meanStd 样本均值与总体标准差。
+func meanStd(s []float64) (mean, std float64) {
+	if len(s) == 0 {
+		return 0, 0
+	}
+	sum := 0.0
+	for _, v := range s {
+		sum += v
+	}
+	mean = sum / float64(len(s))
+	var ss float64
+	for _, v := range s {
+		d := v - mean
+		ss += d * d
+	}
+	std = math.Sqrt(ss / float64(len(s)))
+	return
 }
