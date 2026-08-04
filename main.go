@@ -29,6 +29,10 @@ func main() {
 		runSegments(os.Args[2:])
 	case "serve":
 		runServe(os.Args[2:])
+	case "sczl-build":
+		runSCZLBuild(os.Args[2:])
+	case "sczl-query":
+		runSCZLQuery(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -43,6 +47,8 @@ func usage() {
   go-image-search query -index <索引文件> -q <查询图像> [-top N] [-maxdist D]
   go-image-search segments -img <图像> [-out <可视化png>]   # 调试：查看区域划分
   go-image-search serve [-addr <host:port>] [-root <图像库目录>] [-index <索引文件>]  # iOS 风格 Web 界面
+  go-image-search sczl-build -dir <图像库目录> -out <索引文件> [-jobs N]  # SCZL 算法：形状上下文+Fourier+LBP
+  go-image-search sczl-query -index <索引文件> -q <查询图像> [-top N]  # SCZL 检索
 
 分段参数: -threshold-pct <0~1> -factor <x> -min-area-ratio <r> -median <k> -connectivity <4|8>
 合并参数: -merge-dist <汉明距离阈值> -merge-color <颜色阈值> -no-merge  # 相似相邻区域合并为组合区域

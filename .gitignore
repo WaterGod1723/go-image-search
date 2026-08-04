@@ -34,3 +34,7 @@ Thumbs.db
 
 # Runtime generated index
 index.bin
+ml/data/
+ml/models/
+ml/onnxruntime/
+test_pngs_trimmed/
