@@ -5,7 +5,7 @@ import (
 	"math"
 )
 
-// extract.go 描述子提取总装：图像 → 前景（含文字带剔除）→ 轮廓 → 占据栅格/FD/径向/SC/LBP → Descriptor。
+// extract.go 描述子提取总装：图像 → 前景（含文字带剔除）→ 轮廓 → 占据栅格/NCC/HOG/FD/SC → Descriptor。
 
 // Extract 从图像提取 SCZL 描述子。失败（无法提取前景）返回 invalid Descriptor。
 func Extract(img image.Image) Descriptor {
@@ -24,14 +24,8 @@ func Extract(img image.Image) Descriptor {
 		return Descriptor{}
 	}
 
-	pts, radii := radialBoundary(fg, bbox, contourSamples)
-	if len(pts) != contourSamples {
-		return Descriptor{}
-	}
-
-	fd := fourierDescriptors(pts)
-	radial := radialHistogram(radii)
-	sc := computeSC(pts)
+	// 掩码区域划分（多部件判别）——提前计算以决定是否聚合。
+	regions := extractRegions(fg, bbox)
 
 	// 归一化 64×64 灰度块 + 软前景掩码（scale-normalized，消除源图尺寸差异）。
 	grayFull := make([]float64, w*h)
@@ -41,13 +35,40 @@ func Extract(img image.Image) Descriptor {
 	grayPatch := cropResizeGray(grayFull, w, bbox, normSize)
 	maskSoft := cropResizeMaskSoft(fg, bbox, normSize)
 	maskBin := thresholdMask(maskSoft, 0.5)
-	lbp := lbpHistogram(grayPatch, maskBin)
 
-	// 占据栅格从 64×64 软掩码下采样，保证查询/图库同尺寸可比。
-	occ16 := downsampleMask(maskSoft, normSize, occBin16)
-	occ32 := downsampleMask(maskSoft, normSize, occBin32)
-	occ64 := l2normalize(maskSoft)
+	// HOG 梯度方向直方图：基于 Sobel 梯度，仅前景像素贡献。
+	// 天然对填充色/背景色不变（梯度刻画边界方向而非绝对亮度）。
+	hog := hogDescriptor(grayPatch, maskBin)
 
+	// 聚合策略：对碎片化/镂空图标（实度<fillThr）做孔洞填充，填实被前景
+	// 包围的封闭袋（框线图标→实心矩形），使 query（连通实心渲染）与图库
+	// （框线碎成多块）的占据栅格对齐。保留对外开口的间隙（dashboard 4 方块
+	// 间隙不填）；高实度图标不填（避免把设计内封闭孔洞如人头误填成方块）。
+	sol := solidity(maskSoft)
+	occSrc := maskSoft
+	if sol < fillThr {
+		occSrc = holeFill(maskSoft)
+	}
+	occ16 := downsampleMask(occSrc, normSize, occBin16)
+	occ32 := downsampleMask(occSrc, normSize, occBin32)
+	occ64 := l2normalize(occSrc)
+
+	// NCC 归一化互相关模板：去均值 + L2 归一化的 64×64 灰度块。
+	// 比二值化 DCT pHash 保留完整空间结构，且对亮度/对比度仿射变化不变
+	// （query 截图与图库原图的颜色差异不再破坏匹配）。
+	patch := nccPatch(grayPatch)
+
+	// 轮廓签名（FD/径向/SC）：基于原始前景掩码。碎片化图标的轮廓不可靠，
+	// 由 SC 实度守卫（scSolidityThr）在检索时对 SC 置零兜底。
+	pts, radii := radialBoundary(fg, bbox, contourSamples)
+	var fd []float64
+	var radial []float64
+	var sc [][]float64
+	if len(pts) == contourSamples {
+		fd = fourierDescriptors(pts)
+		radial = radialHistogram(radii)
+		sc = computeSC(pts)
+	}
 	// 面积元信息。
 	area := 0
 	for _, v := range fg.cell {
@@ -64,7 +85,10 @@ func Extract(img image.Image) Descriptor {
 		Radial:      radial,
 		SC:          sc,
 		SCPoints:    pts,
-		LBP:         lbp,
+		Patch:       patch,
+		HOG:         hog,
+		Regions:     regions,
+		Solidity:    sol,
 		Area:        area,
 		BBox:        bbox,
 		Valid:       true,
@@ -86,6 +110,27 @@ func l2normalize(v []float64) []float64 {
 		}
 	}
 	return out
+}
+
+// nccPatch 将灰度块做去均值 + L2 归一化，供 NCC 互相关匹配。
+// 去均值消除亮度偏移（query 截图 vs 图库原图的背景色差异），
+// L2 归一化消除对比度差异，使点积 = NCC ∈ [-1,1]。
+// 相比二值化 DCT pHash 保留完整 4096 维空间结构，判别力更强。
+func nccPatch(grayPatch []float64) []float64 {
+	n := len(grayPatch)
+	if n == 0 {
+		return nil
+	}
+	mean := 0.0
+	for _, v := range grayPatch {
+		mean += v
+	}
+	mean /= float64(n)
+	out := make([]float64, n)
+	for i, v := range grayPatch {
+		out[i] = v - mean
+	}
+	return l2normalize(out)
 }
 
 // hasForeground 判断掩码是否仍有前景像素。

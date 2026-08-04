@@ -26,14 +26,28 @@ type Descriptor struct {
 
 	// 全局旋转/缩放/平移不变签名（外轮廓）。
 	Fourier []float64 // 归一化 |FD|，K 维
-	Radial  []float64  // 径向距离直方图（归一化），R 维
+	Radial  []float64 // 径向距离直方图（归一化），R 维
 
 	// 局部形状签名。
 	SC       [][]float64 // nPoints × nBins shape-context 直方图
 	SCPoints []Point     // 采样轮廓点（归一化坐标）
 
-	// 颜色无关纹理。
-	LBP []float64 // uniform LBP 直方图（归一化）
+	// NCC 归一化互相关模板：去均值 + L2 归一化的 64×64 灰度块。
+	// 比二值化 DCT pHash 保留更多空间结构信息，且对亮度/对比度仿射变化不变
+	// （query 截图 vs 图库原图的颜色差异不再破坏匹配）。
+	Patch []float64
+
+	// HOG 梯度方向直方图：捕捉边缘方向的空间分布，天然对填充色/背景色不变
+	// （仅边界处梯度显著，填充色差异不影响）。替代脆弱的 LBP。
+	HOG []float64
+
+	// 掩码区域划分（多部件判别）：前景连通域逐个描述，
+	// 检索时多区域匈牙利匹配，区分多部件图标与单块填充图标。
+	Regions []RegionDesc
+
+	// Solidity 实度 = 前景面积 / 凸包面积 [0,1]。低实度=镂空/碎片化轮廓，
+	// 此时基于轮廓的 SC 信号不可靠，检索时对 SC 置零避免噪声拖分。
+	Solidity float64
 
 	// 辅助元信息。
 	Area int
@@ -47,29 +61,33 @@ type Match struct {
 	Score   float64 // [0,1] 越大越相似
 	FDSim   float64 // 全局签名相似度
 	SCSim   float64 // shape-context 相似度
-	LBPSim  float64 // LBP 纹理相似度
+	HOGSim  float64 // HOG 梯度方向相似度
 }
 
 // Options 检索参数。
 type Options struct {
-	TopK          int     // 返回数量，<=0 取 5
-	OccWeight     float64 // 占据栅格权重，<=0 取 0.6
-	SCWeight      float64 // SC 权重，<=0 取 0.15
-	FDWeight      float64 // Fourier 权重，<=0 取 0.1
-	LBPWeight     float64 // LBP 权重，<=0 取 0.15
-	FDPreFilter   int     // 占据+FD 召回后保留的候选数，<=0 取 200
-	FDCut         float64 // 全局相似度截断（低于此值直接淘汰），<=0 取 0.4
-	SCMaxPoints   int     // SC 匹配时每侧采样点数上限（控制匈牙利规模），<=0 取 48
+	TopK        int     // 返回数量，<=0 取 5
+	OccWeight   float64 // 占据栅格权重，<=0 取 0.25
+	NccWeight   float64 // NCC 互相关权重，<=0 取 0.25
+	RegWeight   float64 // 区域匹配权重，<=0 取 0.15
+	HogWeight   float64 // HOG 梯度方向权重，<=0 取 0.15
+	SCWeight    float64 // SC 权重，<=0 取 0.10
+	FDWeight    float64 // Fourier 权重，<=0 取 0.10
+	FDPreFilter int     // 全局召回后保留的候选数，<=0 取 200
+	FDCut       float64 // 全局相似度截断（低于此值直接淘汰），<=0 取 0.4
+	SCMaxPoints int     // SC 匹配时每侧采样点数上限（控制匈牙利规模），<=0 取 48
 }
 
 // DefaultOptions 推荐默认参数。
 func DefaultOptions() Options {
 	return Options{
 		TopK:        5,
-		OccWeight:   0.6,
-		SCWeight:    0.15,
-		FDWeight:    0.1,
-		LBPWeight:   0.15,
+		OccWeight:   0.25,
+		NccWeight:   0.25,
+		RegWeight:   0.15,
+		HogWeight:   0.15,
+		SCWeight:    0.10,
+		FDWeight:    0.10,
 		FDPreFilter: 200,
 		FDCut:       0.4,
 		SCMaxPoints: 48,
@@ -97,4 +115,6 @@ const (
 	// occBins 占据栅格边长常量。
 	occBin16 = 16
 	occBin32 = 32
+	// fillThr 实度低于此值时对占据栅格做孔洞填充（碎片化/镂空图标聚合）。
+	fillThr = 0.5
 )

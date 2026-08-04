@@ -47,8 +47,11 @@ func TestExtractProducesValidDescriptor(t *testing.T) {
 	if len(d.Occupancy64) != normSize*normSize {
 		t.Fatalf("Occupancy64 维度异常: %d", len(d.Occupancy64))
 	}
-	if len(d.LBP) != lbpDims {
-		t.Fatalf("LBP 维度异常: %d", len(d.LBP))
+	if len(d.Patch) != normSize*normSize {
+		t.Fatalf("Patch 维度异常: %d", len(d.Patch))
+	}
+	if len(d.HOG) == 0 {
+		t.Fatal("HOG 为空")
 	}
 	if len(d.Fourier) != fourierDims {
 		t.Fatalf("Fourier 维度异常: %d", len(d.Fourier))

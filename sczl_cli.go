@@ -96,8 +96,8 @@ func runSCZLQuery(args []string) {
 		return
 	}
 	for i, m := range matches {
-		fmt.Printf("#%d score=%.4f fd=%.4f sc=%.4f lbp=%.4f %s\n",
-			i+1, m.Score, m.FDSim, m.SCSim, m.LBPSim, base(m.ImageID))
+		fmt.Printf("#%d score=%.4f fd=%.4f sc=%.4f hog=%.4f %s\n",
+			i+1, m.Score, m.FDSim, m.SCSim, m.HOGSim, base(m.ImageID))
 	}
 }
 
