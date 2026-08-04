@@ -142,6 +142,25 @@ body {
 body[data-theme="mature"] .theme-toggle .icon-moon { opacity: 1; transform: rotate(0) scale(1); }
 body[data-theme="mature"] .theme-toggle .icon-sun { opacity: 0; transform: rotate(-90deg) scale(.4); }
 
+/* 检索策略切换按钮 */
+.algo-toggle {
+  position: absolute; right: 68px; top: calc(12px + env(safe-area-inset-top));
+  height: 42px; padding: 0 14px; border: none; cursor: pointer;
+  border-radius: 21px; background: var(--glass);
+  color: var(--accent); display: flex; align-items: center; gap: 6px;
+  box-shadow: var(--shadow-soft); backdrop-filter: blur(10px);
+  transition: transform .3s cubic-bezier(.34,1.56,.64,1), background .3s;
+  user-select: none; font-size: 13px; font-weight: 600;
+}
+.algo-toggle:active { transform: scale(.9); }
+.algo-toggle::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); opacity: .5;
+}
+.algo-toggle.sczl { color: #6c5ce7; }
+.algo-toggle.sczl::before { background: #6c5ce7; opacity: 1; }
+body[data-theme="mature"] .algo-toggle.sczl { color: #a29bfe; }
+
 /* ---------- 页面 ---------- */
 main {
   max-width: 560px; margin: 0 auto; padding: 16px 16px calc(108px + env(safe-area-inset-bottom));

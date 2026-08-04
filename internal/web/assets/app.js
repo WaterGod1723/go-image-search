@@ -52,6 +52,38 @@ async function fetchJSON(url, opts) {
   return res.json();
 }
 
+/* ---------------- 检索策略切换 ---------------- */
+let currentAlgo = 'sczl';
+const algoLabels = { region: '区域', sczl: 'SCZL' };
+async function refreshAlgorithm() {
+  try {
+    const res = await fetchJSON('/api/algorithm');
+    currentAlgo = res.algorithm || 'region';
+  } catch (e) { /* ignore */ }
+  updateAlgoUI();
+}
+function updateAlgoUI() {
+  $('#algo-label').textContent = algoLabels[currentAlgo] || currentAlgo;
+  $('#algo-toggle').classList.toggle('sczl', currentAlgo === 'sczl');
+}
+$('#algo-toggle').addEventListener('click', async () => {
+  const next = currentAlgo === 'region' ? 'sczl' : 'region';
+  try {
+    await fetchJSON('/api/algorithm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ algorithm: next }),
+    });
+    currentAlgo = next;
+    updateAlgoUI();
+    toast(`已切换为 ${algoLabels[next]} 策略`);
+    refreshStatus();
+    loadLibrary();
+  } catch (e) {
+    toast(e.message);
+  }
+});
+
 /* ---------------- 标签切换 ---------------- */
 function switchTab(name) {
   $$('.page').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
@@ -526,4 +558,5 @@ segImg.addEventListener('mouseleave', hideSegTip);
 
 /* ---------------- 启动 ---------------- */
 switchTab('search');
+refreshAlgorithm();
 refreshStatus();

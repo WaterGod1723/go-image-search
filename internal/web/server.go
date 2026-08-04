@@ -25,6 +25,7 @@ import (
 
 	"go-image-search/internal/imageproc"
 	"go-image-search/internal/index"
+	"go-image-search/internal/sczl"
 	"go-image-search/internal/segment"
 )
 
@@ -42,9 +43,11 @@ type Server struct {
 	opts   Options
 	logger *log.Logger
 
-	mu    sync.Mutex
-	index *index.Index
-	build *buildJob
+	mu        sync.Mutex
+	index     *index.Index   // 区域感知哈希索引
+	sczlIndex *sczl.Index    // SCZL 形状索引（NCC+HOG）
+	algorithm string         // "region" 或 "sczl"，当前激活的检索策略
+	build     *buildJob
 }
 
 // buildJob 后台构建任务的进度状态。
@@ -82,8 +85,9 @@ func New(opts Options) *Server {
 		opts.Root = "."
 	}
 	return &Server{
-		opts:   opts,
-		logger: log.New(os.Stdout, "[web] ", log.LstdFlags),
+		opts:      opts,
+		logger:    log.New(os.Stdout, "[web] ", log.LstdFlags),
+		algorithm: "sczl",
 	}
 }
 
@@ -97,6 +101,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(sub))))
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/api/status", s.handleStatus)
+	mux.HandleFunc("/api/algorithm", s.handleAlgorithm)
 	mux.HandleFunc("/api/build", s.handleBuild)
 	mux.HandleFunc("/api/build/status", s.handleBuildStatus)
 	mux.HandleFunc("/api/load", s.handleLoad)
@@ -152,18 +157,50 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	images, regions := 0, 0
-	if s.index != nil {
+	if s.algorithm == "sczl" && s.sczlIndex != nil {
+		images = len(s.sczlIndex.Images)
+		regions = s.sczlIndex.Len()
+	} else if s.index != nil {
 		images = len(s.index.Images)
 		regions = s.index.Len()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"indexPath": s.opts.IndexPath,
-		"root":      s.opts.Root,
-		"loaded":    s.index != nil,
-		"images":    images,
-		"regions":   regions,
-		"build":     s.build,
+		"indexPath":  s.opts.IndexPath,
+		"root":       s.opts.Root,
+		"loaded":     (s.algorithm == "sczl" && s.sczlIndex != nil) || (s.algorithm == "region" && s.index != nil),
+		"images":     images,
+		"regions":    regions,
+		"algorithm":  s.algorithm,
+		"sczlLoaded": s.sczlIndex != nil,
+		"build":      s.build,
 	})
+}
+
+func (s *Server) handleAlgorithm(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		s.mu.Lock()
+		alg := s.algorithm
+		s.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]string{"algorithm": alg})
+		return
+	}
+	var req struct {
+		Algorithm string `json:"algorithm"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	alg := strings.ToLower(strings.TrimSpace(req.Algorithm))
+	if alg != "region" && alg != "sczl" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "algorithm 必须是 region 或 sczl"})
+		return
+	}
+	s.mu.Lock()
+	s.algorithm = alg
+	s.mu.Unlock()
+	s.logger.Printf("检索策略切换为: %s", alg)
+	writeJSON(w, http.StatusOK, map[string]string{"algorithm": alg})
 }
 
 func (s *Server) handleBuild(w http.ResponseWriter, r *http.Request) {
@@ -186,6 +223,7 @@ func (s *Server) handleBuild(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": "已有构建任务正在运行"})
 		return
 	}
+	alg := s.algorithm
 	job := &buildJob{
 		ID:      fmt.Sprintf("build-%d", time.Now().UnixNano()),
 		State:   "running",
@@ -195,7 +233,11 @@ func (s *Server) handleBuild(w http.ResponseWriter, r *http.Request) {
 	s.build = job
 	s.mu.Unlock()
 
-	go s.runBuild(job, req)
+	if alg == "sczl" {
+		go s.runBuildSczl(job, req)
+	} else {
+		go s.runBuild(job, req)
+	}
 	writeJSON(w, http.StatusAccepted, job)
 }
 
@@ -300,6 +342,55 @@ func (s *Server) failBuild(job *buildJob, err error) {
 	s.logger.Printf("索引构建失败: %v", err)
 }
 
+// runBuildSczl 用 SCZL 算法（NCC+HOG 形状描述子）构建索引。
+func (s *Server) runBuildSczl(job *buildJob, req buildRequest) {
+	files, err := imageproc.LoadSupported(req.Dir)
+	if err != nil {
+		s.failBuild(job, err)
+		return
+	}
+	if len(files) == 0 {
+		s.failBuild(job, fmt.Errorf("目录 %s 中无支持的图片", req.Dir))
+		return
+	}
+
+	out := req.Out
+	if out == "" || out == s.opts.IndexPath {
+		out = s.opts.IndexPath + ".sczl"
+	}
+
+	ix := sczl.New()
+	job.Total = len(files)
+	added := ix.BuildParallel(files, 0, func(f string) (sczl.Descriptor, error) {
+		img, err := imageproc.Load(f)
+		if err != nil {
+			s.logger.Printf("跳过 %s: %v", f, err)
+			return sczl.Descriptor{}, err
+		}
+		return sczl.Extract(img), nil
+	}, func(p sczl.BuildProgress) {
+		s.mu.Lock()
+		job.Current = p.File
+		job.Done = p.Done
+		s.mu.Unlock()
+	})
+
+	if err := ix.Save(out); err != nil {
+		s.failBuild(job, err)
+		return
+	}
+
+	s.mu.Lock()
+	s.sczlIndex = ix
+	job.State = "done"
+	job.Images = added
+	job.Regions = ix.Len()
+	job.Index = out
+	job.Message = "SCZL 构建完成"
+	s.mu.Unlock()
+	s.logger.Printf("SCZL 索引构建完成: %d 图像, %d 描述子 -> %s", added, ix.Len(), out)
+}
+
 func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Index string `json:"index"`
@@ -309,6 +400,25 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := strings.TrimSpace(req.Index)
+	s.mu.Lock()
+	alg := s.algorithm
+	s.mu.Unlock()
+	if alg == "sczl" {
+		if p == "" {
+			p = s.opts.IndexPath + ".sczl"
+		}
+		ix, err := sczl.Load(p)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		s.mu.Lock()
+		s.sczlIndex = ix
+		s.mu.Unlock()
+		s.logger.Printf("已加载 SCZL 索引: %s", p)
+		writeJSON(w, http.StatusOK, map[string]any{"images": len(ix.Images), "regions": ix.Len()})
+		return
+	}
 	if p == "" {
 		p = s.opts.IndexPath
 	}
@@ -343,8 +453,19 @@ type matchJSON struct {
 
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
+	alg := s.algorithm
 	ix := s.index
+	sczlIx := s.sczlIndex
 	s.mu.Unlock()
+
+	if alg == "sczl" {
+		if sczlIx == nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "尚未加载 SCZL 索引，请先构建或加载索引"})
+			return
+		}
+		s.handleQuerySczl(w, r, sczlIx)
+		return
+	}
 	if ix == nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "尚未加载索引，请先构建或加载索引"})
 		return
@@ -438,16 +559,69 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// handleQuerySczl 用 SCZL 算法检索。
+func (s *Server) handleQuerySczl(w http.ResponseWriter, r *http.Request, ix *sczl.Index) {
+	if err := r.ParseMultipartForm(64 << 20); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	file, _, err := r.FormFile("image")
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "缺少查询图像"})
+		return
+	}
+	defer file.Close()
+	img, _, err := image.Decode(file)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "无法解析图像: " + err.Error()})
+		return
+	}
+	q := sczl.Extract(img)
+	if !q.Valid {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "无法提取前景"})
+		return
+	}
+	top := atoiDefault(r.FormValue("top"), 5)
+	if top <= 0 {
+		top = 5
+	}
+	matches := ix.Query(q, sczl.DefaultOptions())
+	if len(matches) > top {
+		matches = matches[:top]
+	}
+	resp := struct {
+		Regions int         `json:"regions"`
+		Matches []matchJSON `json:"matches"`
+	}{Regions: 1}
+	for _, m := range matches {
+		resp.Matches = append(resp.Matches, matchJSON{
+			ImageID: m.ImageID,
+			Score:   round4(m.Score),
+			Cover:   1.0,
+			Count:   1,
+		})
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
 func (s *Server) handleImages(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
+	alg := s.algorithm
 	ix := s.index
+	sczlIx := s.sczlIndex
 	s.mu.Unlock()
-	if ix == nil {
+	var images map[string]bool
+	if alg == "sczl" && sczlIx != nil {
+		images = sczlIx.Images
+	} else if ix != nil {
+		images = ix.Images
+	}
+	if images == nil {
 		writeJSON(w, http.StatusOK, []string{})
 		return
 	}
-	paths := make([]string, 0, len(ix.Images))
-	for p := range ix.Images {
+	paths := make([]string, 0, len(images))
+	for p := range images {
 		paths = append(paths, p)
 	}
 	sort.Strings(paths)
