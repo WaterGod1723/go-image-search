@@ -24,7 +24,6 @@ go.work.sum
 
 # Wails desktop output & generated files
 /build/
-/frontend/dist/
 /frontend/wailsjs/
 /frontend/node_modules/
 /frontend/package-lock.json
