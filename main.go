@@ -16,9 +16,10 @@ import (
 )
 
 func main() {
+	// 不带参数时默认启动桌面 GUI 界面；带子命令时进入命令行模式。
 	if len(os.Args) < 2 {
-		usage()
-		os.Exit(2)
+		runGUI()
+		return
 	}
 	switch os.Args[1] {
 	case "build":
@@ -33,6 +34,8 @@ func main() {
 		runSCZLBuild(os.Args[2:])
 	case "sczl-query":
 		runSCZLQuery(os.Args[2:])
+	case "help", "-h", "--help":
+		usage()
 	default:
 		usage()
 		os.Exit(2)
@@ -43,6 +46,10 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `图片反向搜索（感知哈希 + 区域划分）
 
 用法:
+  不带参数（默认）启动桌面 GUI 界面：
+  go-image-search
+  go-image-search help                       # 查看本帮助
+
   go-image-search build -dir <图像库目录> -out <索引文件> [分段参数...]
   go-image-search query -index <索引文件> -q <查询图像> [-top N] [-maxdist D]
   go-image-search segments -img <图像> [-out <可视化png>]   # 调试：查看区域划分

@@ -22,6 +22,14 @@ go.work.sum
 # Build output
 /bin/
 
+# Wails desktop output & generated files
+/build/
+/frontend/dist/
+/frontend/wailsjs/
+/frontend/node_modules/
+/frontend/package-lock.json
+/frontend/package.json.md5
+
 # IDE / Editor
 .vscode/
 .idea/
@@ -34,6 +42,7 @@ Thumbs.db
 
 # Runtime generated index
 index.bin
+index.bin.sczl
 ml/data/
 ml/models/
 ml/onnxruntime/

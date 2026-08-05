@@ -9,8 +9,9 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+  # 跨平台命令行工具（不含桌面 GUI，普通 go build 即可）
+  build-cli:
+    name: Build CLI ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -42,7 +43,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version: "1.25"
           cache: true
 
       - name: Run tests
@@ -62,15 +63,15 @@ jobs:
 
       - name: Package (Windows)
         if: matrix.goos == 'windows'
+        shell: bash
         run: |
           7z a "go-image-search-${{ github.ref_name }}-windows-${{ matrix.goarch }}.zip" "go-image-search-${{ github.ref_name }}-windows-${{ matrix.goarch }}.exe"
-        shell: bash
 
       - name: Package (Unix)
         if: matrix.goos != 'windows'
+        shell: bash
         run: |
           tar -czf "go-image-search-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" "go-image-search-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}"
-        shell: bash
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -80,9 +81,46 @@ jobs:
             *.tar.gz
             *.zip
 
+  # Windows 桌面 GUI（Wails 构建），产物为默认启动图形界面的可执行文件
+  build-gui:
+    name: Build Wails GUI (windows/amd64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
+
+      - name: Build GUI
+        run: wails build -tags wails -trimpath -ldflags "-s -w"
+
+      - name: Package
+        shell: bash
+        run: |
+          mv build/bin/go-image-search.exe "go-image-search-${{ github.ref_name }}-windows-amd64-gui.exe"
+          7z a "go-image-search-${{ github.ref_name }}-windows-amd64-gui.zip" "go-image-search-${{ github.ref_name }}-windows-amd64-gui.exe"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-image-search-gui-windows-amd64
+          path: "*.zip"
+
   publish:
     name: Publish Release ${{ github.ref_name }}
-    needs: build
+    needs: [build-cli, build-gui]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts

@@ -225,6 +225,18 @@ body[data-algo="region"] .sczl-only   { display: none !important; }
 .field:focus { border-color: var(--accent); background: var(--accent-soft); }
 .field::placeholder { color: var(--text-faint); }
 
+/* ---------- 输入框 + 浏览按钮 ---------- */
+.field-row { display: flex; gap: 8px; width: 100%; }
+.field-row .field { flex: 1; text-align: right; }
+.browse {
+  flex: none; height: 38px; border: none; border-radius: 10px;
+  background: var(--accent); color: #fff; font-size: 13px;
+  font-family: inherit; padding: 0 12px; cursor: pointer; white-space: nowrap;
+  transition: opacity .2s, transform .2s;
+}
+.browse:hover { opacity: .88; }
+.browse:active { transform: scale(.96); }
+
 /* ---------- 分段控件 ---------- */
 .seg { display: flex; background: var(--fill); border-radius: 12px; padding: 3px; gap: 2px; }
 .seg button {

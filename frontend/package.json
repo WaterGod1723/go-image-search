@@ -1,0 +1,10 @@
+{
+  "name": "go-image-search-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install": "node build.mjs",
+    "build": "node build.mjs",
+    "dev": "node build.mjs"
+  }
+}

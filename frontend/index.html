@@ -7,7 +7,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>图片搜索</title>
-<link rel="stylesheet" href="/assets/styles.css">
+<link rel="stylesheet" href="./styles.css">
 </head>
 <body data-theme="kawaii" data-algo="sczl">
 
@@ -149,11 +149,17 @@
       </div>
       <div class="cell">
         <label>图像库目录</label>
-        <input id="cfg-dir" class="field field-right" placeholder="例如 D:\photos" list="dir-history" autocomplete="off">
+        <div class="field-row">
+          <input id="cfg-dir" class="field field-right" placeholder="例如 D:\photos" list="dir-history" autocomplete="off">
+          <button id="btn-browse-dir" class="browse" type="button" title="选择目录">浏览…</button>
+        </div>
       </div>
       <div class="cell">
         <label>索引输出路径</label>
-        <input id="cfg-out" class="field field-right" placeholder="index.bin">
+        <div class="field-row">
+          <input id="cfg-out" class="field field-right" placeholder="index.bin">
+          <button id="btn-browse-out" class="browse" type="button" title="选择文件">浏览…</button>
+        </div>
       </div>
     </div>
 
@@ -211,7 +217,10 @@
     <div class="card">
       <div class="cell">
         <label>索引文件</label>
-        <input id="cfg-load" class="field field-right" placeholder="index.bin" list="index-history" autocomplete="off">
+        <div class="field-row">
+          <input id="cfg-load" class="field field-right" placeholder="index.bin" list="index-history" autocomplete="off">
+          <button id="btn-browse-load" class="browse" type="button" title="选择文件">浏览…</button>
+        </div>
       </div>
     </div>
     <button id="btn-load" class="btn secondary">加载索引</button>
@@ -224,7 +233,10 @@
     <div class="card">
       <div class="cell">
         <label>图像路径</label>
-        <input id="seg-path" class="field field-right" placeholder="D:\photos\a.png">
+        <div class="field-row">
+          <input id="seg-path" class="field field-right" placeholder="D:\photos\a.png">
+          <button id="btn-browse-seg" class="browse" type="button" title="选择图像">浏览…</button>
+        </div>
       </div>
     </div>
 
@@ -294,6 +306,6 @@
 
 <div id="toast"></div>
 
-<script src="/assets/app.js"></script>
+<script src="./app.js"></script>
 </body>
 </html>

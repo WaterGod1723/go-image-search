@@ -1,12 +1,12 @@
 # go-image-search
 
-> Reverse image search using perceptual hash (pHash) and region segmentation — Go tool with CLI + web UI to find similar, cropped, thumbnail or duplicate images across a large local library. No external services.
+> Reverse image search using perceptual hash (pHash) and region segmentation — Go tool with CLI + desktop GUI (Wails) to find similar, cropped, thumbnail or duplicate images across a large local library. No external services.
 >
-> 基于感知哈希(pHash)与区域划分的图片反向搜索，纯 Go 实现。将图像分割为多个区域并分别哈希，结合骨架衍生图与相似区域合并，支持局部/裁剪/缩略图的相似检索，内置命令行与 iOS 风格 Web 界面，无需外部服务。
+> 基于感知哈希(pHash)与区域划分的图片反向搜索，纯 Go 实现。将图像分割为多个区域并分别哈希，结合骨架衍生图与相似区域合并，支持局部/裁剪/缩略图的相似检索，内置命令行与 Wails 桌面界面，无需外部服务。
 
 Topics: `image-search` `perceptual-hash` `reverse-image-search` `phash` `image-processing` `go` `golang` `computer-vision` `image-retrieval`
 
-支持命令行检索与 iOS 风格 Web 界面。
+支持命令行检索与 Wails 桌面 GUI（不带参数启动时默认打开界面，内置构建索引 / 检索 / 图库 / 区域调试）。
 
 ![alt text](image.png)
 ![alt text](image-1.png)
@@ -51,19 +51,38 @@ Topics: `image-search` `perceptual-hash` `reverse-image-search` `phash` `image-p
 
 ## 构建
 
+### 桌面 GUI（Wails，Windows）
+
+```bash
+wails build -tags wails     # 产物: build/bin/go-image-search.exe
+```
+
+不带参数运行 `go-image-search.exe` 即默认打开桌面界面；构建索引、以图搜图、图库浏览与区域调试均可在界面内完成（目录/文件选择使用系统原生对话框）。
+
+### 命令行工具
+
 ```bash
 go build -o bin/go-image-search .
 ```
 
+> 桌面界面代码位于 `gui.go`（`-tags wails` 时才编译），因此普通 `go build` / `go test ./...` 不受 Wails/WebView2 依赖影响，可正常跨平台构建。
+
 ## 使用
 
-### 区域感知哈希（pHash 方案）
+不带参数启动即进入桌面 GUI：
+
+```
+go-image-search             # 启动桌面界面
+go-image-search help        # 查看命令行帮助
+```
+
+其余命令行子命令：
 
 ```
 go-image-search build -dir <图像库目录> -out <索引文件> [分段参数...]
 go-image-search query -index <索引文件> -q <查询图像> [-top N] [-maxdist D]
 go-image-search segments -img <图像> [-out <可视化png>]   # 调试：查看区域划分
-go-image-search serve [-addr <host:port>] [-root <图像库目录>] [-index <索引文件>]
+go-image-search serve [-addr <host:port>] [-root <图像库目录>] [-index <索引文件>]  # 兼容保留的 Web 界面
 ```
 
 #### 分段参数
@@ -112,23 +131,27 @@ go-image-search sczl-query -index sczl.bin -q query.png -top 5 -no-adaptive
 # 查看某张图的区域划分
 go-image-search segments -img query.png -out seg.png
 
-# 启动 Web 界面
-go-image-search serve -root ./images -index index.bin
+# 启动桌面界面（也可在界面内构建/加载索引后直接检索）
+go-image-search
 ```
 
 ## 目录结构
 
 ```
-main.go            命令入口（build / query / segments / serve）
+main.go            命令入口（无参数=GUI；build / query / segments / serve）
 sczl_cli.go        SCZL 子命令入口（sczl-build / sczl-query）
+gui.go             桌面 GUI 入口（-tags wails 构建；App 绑定 + Wails Run）
+gui_cli.go         非 wails 构建时的 runGUI 占位（CLI 行为）
 console_*.go       控制台编码处理（Windows 设置 UTF-8 代码页）
+wails.json         Wails 工程配置
+frontend/          桌面界面前端（index.html / src/app.js / src/styles.css）
 internal/
   imageproc/       图像加载、滤波与衍生图生成
   phash/           感知哈希
   segment/         区域划分与相似区域合并
   index/           索引序列化与检索（pHash 方案）
   sczl/            SCZL 算法：形状上下文 + Fourier + HOG + 自适应权重
-  web/             Web 界面（server.go + assets）
+  web/             Web 界面（server.go + assets + service.go：HTTP 与 GUI 共用的检索/构建服务）
 ```
 
 ## 测试

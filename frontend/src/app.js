@@ -3,6 +3,40 @@
 const $ = sel => document.querySelector(sel);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
 
+/* ---------------- Wails 绑定 ---------------- */
+const App = window.go.main.App;
+
+// Wails 绑定调用统一出错处理：Go 侧返回错误时 Promise reject 的是字符串。
+const api = {
+  status: () => App.Status(),
+  getAlgorithm: () => App.GetAlgorithm(),
+  setAlgorithm: a => App.SetAlgorithm(a),
+  build: req => App.Build(req),
+  buildStatus: () => App.BuildStatus(),
+  load: idx => App.Load(idx),
+  queryData: (u, top, md, cw) => App.QueryData(u, top, md, cw),
+  queryPath: (p, top, md, cw) => App.QueryPath(p, top, md, cw),
+  images: () => App.ImageList(),
+  imageData: p => App.ImageDataURI(p),
+  segments: (p, params) => App.Segments(p, params),
+  segmentsPNG: (p, params) => App.SegmentsPNG(p, params),
+  segmentsMapPNG: (p, params) => App.SegmentsMapPNG(p, params),
+  pickImage: () => App.PickImage(),
+  pickDir: () => App.PickDirectory(),
+  pickIndex: () => App.PickIndex(),
+};
+
+// 原生文件选择对话框（经 Go 绑定暴露）
+function pickImage() {
+  return App.PickImage();
+}
+function pickDir() {
+  return App.PickDirectory();
+}
+function pickIndex() {
+  return App.PickIndex();
+}
+
 const TITLES = {
   search: ['搜索', '按图像内容检索图片库'],
   library: ['图库', '浏览已索引的图片'],
@@ -42,16 +76,6 @@ $('#theme-toggle').addEventListener('click', () => {
   applyTheme(saved);
 })();
 
-async function fetchJSON(url, opts) {
-  const res = await fetch(url, opts);
-  if (!res.ok) {
-    let msg = res.statusText;
-    try { const j = await res.json(); if (j.error) msg = j.error; } catch (e) { /* ignore */ }
-    throw new Error(msg);
-  }
-  return res.json();
-}
-
 /* ---------------- 输入历史（localStorage 持久化，datalist 下拉） ---------------- */
 const HISTORY_MAX = 8;
 function loadHistory(key) {
@@ -80,9 +104,8 @@ let currentAlgo = 'sczl';
 const algoLabels = { region: '区域', sczl: 'SCZL' };
 async function refreshAlgorithm() {
   try {
-    const res = await fetchJSON('/api/algorithm');
-    currentAlgo = res.algorithm || 'region';
-  } catch (e) { /* ignore */ }
+    currentAlgo = await api.getAlgorithm();
+  } catch (e) { /* ignore，使用默认 */ }
   updateAlgoUI();
 }
 function updateAlgoUI() {
@@ -94,20 +117,15 @@ function updateAlgoUI() {
 $('#algo-toggle').addEventListener('click', async () => {
   const next = currentAlgo === 'region' ? 'sczl' : 'region';
   try {
-    await fetchJSON('/api/algorithm', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ algorithm: next }),
-    });
+    await api.setAlgorithm(next);
     currentAlgo = next;
     updateAlgoUI();
-    // 算法切换后索引与参数语义均不同，清空旧查询与结果，避免误判。
     resetQueryState();
     toast(`已切换为 ${algoLabels[next]} 策略`);
     refreshStatus();
     loadLibrary();
   } catch (e) {
-    toast(e.message);
+    toast(e);
   }
 });
 
@@ -135,12 +153,13 @@ $$('.seg').forEach(seg => {
 
 /* ---------------- 查询图片选择 ---------------- */
 let queryFile = null;
+let queryPath = null;
 const dropzone = $('#dropzone');
 const pastezone = $('#pastezone');
 const queryInput = $('#query-input');
 
 function resetPickers() {
-  ['#dz-placeholder', '#pz-placeholder'].forEach(s => $(s).style.display = '');
+  $('#dz-placeholder').style.display = '';
   ['#query-preview', '#paste-preview'].forEach(s => {
     const el = $(s);
     el.style.display = 'none';
@@ -148,9 +167,9 @@ function resetPickers() {
   });
 }
 
-// resetQueryState 清空当前查询图片与结果区，用于切换算法等需要重置上下文的场景。
 function resetQueryState() {
   queryFile = null;
+  queryPath = null;
   resetPickers();
   $('#query-name').textContent = '';
   $('#query-name').style.display = 'none';
@@ -159,37 +178,62 @@ function resetQueryState() {
   $('#results-empty').hidden = true;
 }
 
-function setQueryFile(f, source) {
-  queryFile = f;
+function setQueryPreview(source, src) {
   resetPickers();
-  if (source === 'paste') {
-    $('#pz-placeholder').style.display = 'none';
-    const img = $('#paste-preview');
-    img.src = URL.createObjectURL(f);
-    img.style.display = 'block';
-  } else {
-    $('#dz-placeholder').style.display = 'none';
-    const img = $('#query-preview');
-    img.src = URL.createObjectURL(f);
-    img.style.display = 'block';
-  }
-  $('#query-name').textContent = f.name;
+  const sel = source === 'paste' ? '#paste-preview' : '#query-preview';
+  $(sel).style.display = 'none'; // 先隐藏
+  const img = $(sel);
+  img.src = src;
+  img.style.display = 'block';
   $('#query-name').style.display = '';
   $('#btn-search').disabled = false;
   $('#results-empty').hidden = true;
   $('#results').innerHTML = '';
+}
+
+function setQueryFile(f, source) {
+  queryPath = null;
+  queryFile = f;
+  setQueryPreview(source, URL.createObjectURL(f));
+  $('#query-name').textContent = f.name;
   doSearch();
 }
 
-dropzone.addEventListener('click', () => queryInput.click());
-// 粘贴区点击不触发文件选择（与文案“Ctrl+V 粘贴”一致），仅提示用户操作方式。
+async function setQueryPath(p, source) {
+  queryFile = null;
+  queryPath = p;
+  let uri = '';
+  try { uri = await api.imageData(p); } catch (e) { uri = ''; }
+  setQueryPreview(source, uri);
+  $('#query-name').textContent = base(p) || p;
+  doSearch();
+}
+
+function setQueryPreview(source, uri) {
+  $('#dz-placeholder').style.display = 'none';
+  const img = source === 'paste' ? $('#paste-preview') : $('#query-preview');
+  img.src = uri;
+  img.style.display = 'block';
+  $('#query-name').style.display = '';
+  $('#btn-search').disabled = false;
+  $('#results-empty').hidden = true;
+  $('#results').innerHTML = '';
+}
+
+// 点击选择区弹出原生文件对话框
+dropzone.addEventListener('click', async () => {
+  try {
+    const p = await pickImage();
+    if (p) setQueryPath(p, 'drop');
+  } catch (e) { /* 取消 */ }
+});
+
 pastezone.addEventListener('click', () => {
   pastezone.classList.add('pulse');
   setTimeout(() => pastezone.classList.remove('pulse'), 600);
   toast('在此处按 Ctrl+V 粘贴图片');
   pastezone.focus();
 });
-// 让粘贴区可聚焦，便于接收键盘焦点与 paste 事件
 pastezone.tabIndex = 0;
 queryInput.addEventListener('change', () => { if (queryInput.files[0]) setQueryFile(queryInput.files[0], 'drop'); });
 
@@ -209,6 +253,16 @@ document.addEventListener('paste', e => {
   if (f) setQueryFile(f, 'paste');
 });
 
+// File → base64 data URL
+function fileToDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(file);
+  });
+}
+
 /* ---------------- 搜索 ---------------- */
 const colorRange = $('#color-range');
 const maxdistRange = $('#maxdist-range');
@@ -216,13 +270,12 @@ $('#color-val').textContent = Number(colorRange.value).toFixed(2);
 $('#maxdist-val').textContent = maxdistRange.value;
 colorRange.addEventListener('input', () => $('#color-val').textContent = Number(colorRange.value).toFixed(2));
 maxdistRange.addEventListener('input', () => $('#maxdist-val').textContent = maxdistRange.value);
-// 参数变化（松开滑块/切换返回数量）后，若已有查询图片则即时重新搜索
-colorRange.addEventListener('change', () => { if (queryFile) doSearch(); });
-maxdistRange.addEventListener('change', () => { if (queryFile) doSearch(); });
+colorRange.addEventListener('change', () => { if (queryFile || queryPath) doSearch(); });
+maxdistRange.addEventListener('change', () => { if (queryFile || queryPath) doSearch(); });
 $('#seg-top').addEventListener('click', e => {
   const btn = e.target.closest('button');
   if (!btn) return;
-  if (queryFile) doSearch();
+  if (queryFile || queryPath) doSearch();
 });
 
 function segVal(segSel) {
@@ -231,25 +284,30 @@ function segVal(segSel) {
 }
 
 async function doSearch() {
-  if (!queryFile) return;
-  const fd = new FormData();
-  fd.append('image', queryFile);
-  fd.append('top', segVal('#seg-top'));
-  fd.append('maxdist', maxdistRange.value);
-  fd.append('colorWeight', colorRange.value);
+  const top = parseInt(segVal('#seg-top'), 10);
+  const maxdist = parseInt(maxdistRange.value, 10);
+  const colorWeight = parseFloat(colorRange.value);
 
   $('#search-busy').hidden = false;
   $('#btn-search').disabled = true;
   $('#results').innerHTML = '';
   $('#results-empty').hidden = true;
   try {
-    const data = await fetchJSON('/api/query', { method: 'POST', body: fd });
+    let data;
+    if (queryPath) {
+      data = await api.queryPath(queryPath, top, maxdist, colorWeight);
+    } else if (queryFile) {
+      const dataURL = await fileToDataURL(queryFile);
+      data = await api.queryData(dataURL, top, maxdist, colorWeight);
+    } else {
+      return;
+    }
     renderResults(data);
   } catch (e) {
-    toast(e.message);
+    toast(e);
     $('#results-empty').hidden = false;
     $('#results-empty p').textContent = '检索失败';
-    $('#results-empty span').textContent = e.message;
+    $('#results-empty span').textContent = e;
   } finally {
     $('#search-busy').hidden = true;
     $('#btn-search').disabled = false;
@@ -276,10 +334,9 @@ function resultCard(m, i) {
   const cover = Math.round(m.cover * 100);
   const el = document.createElement('div');
   el.className = 'card result-card';
-  const src = '/api/image?path=' + encodeURIComponent(m.imageId);
   const rel = relOf(m.imageId);
   el.innerHTML =
-    '<img class="thumb" src="' + src + '" alt="">' +
+    '<img class="thumb" alt="">' +
     '<div class="result-body">' +
       '<div class="result-top"><span class="result-name">' + esc(base(m.imageId)) + '</span><span class="rank">#' + (i + 1) + '</span></div>' +
       '<div class="scorebar"><div style="width:' + score + '%"></div></div>' +
@@ -294,7 +351,14 @@ function resultCard(m, i) {
         ).join('') +
       '</div>' +
     '</div>';
-  el.querySelector('.thumb').addEventListener('click', () => viewImage(src, m.imageId));
+  const thumb = el.querySelector('.thumb');
+  const src = '';
+  // 异步加载本地图片为 data URI
+  api.imageData(m.imageId).then(uri => {
+    thumb.src = uri;
+    thumb._uri = uri;
+  }).catch(() => { thumb.src = ''; });
+  thumb.addEventListener('click', () => viewImage(thumb._uri || '', m.imageId));
   const btns = el.querySelectorAll('.copy-btn');
   btns[0].addEventListener('click', () => copyText(m.imageId));
   btns[1].addEventListener('click', () => copyText(rel));
@@ -342,7 +406,7 @@ $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeM
 async function loadLibrary() {
   const grid = $('#lib-grid');
   try {
-    const images = await fetchJSON('/api/images');
+    const images = await api.images();
     grid.innerHTML = '';
     if (!images || images.length === 0) {
       $('#lib-empty').hidden = false;
@@ -351,16 +415,18 @@ async function loadLibrary() {
     $('#lib-empty').hidden = true;
     images.forEach(p => {
       const img = document.createElement('img');
-      const src = '/api/image?path=' + encodeURIComponent(p);
-      img.src = src;
       img.loading = 'lazy';
-      img.addEventListener('click', () => viewImage(src, p));
+      api.imageData(p).then(uri => {
+        img.src = uri;
+        img._uri = uri;
+      }).catch(() => { img.src = ''; });
+      img.addEventListener('click', () => viewImage(img._uri || '', p));
       grid.appendChild(img);
     });
   } catch (e) {
     $('#lib-empty').hidden = false;
     $('#lib-empty p').textContent = '加载失败';
-    $('#lib-empty span').textContent = e.message;
+    $('#lib-empty span').textContent = e;
   }
 }
 
@@ -390,7 +456,6 @@ function updateBuildUI(job) {
   } else {
     $('#build-label').textContent = '正在构建 ' + job.done + '/' + job.total;
     $('#build-file').textContent = job.current || '';
-    // 基于已用时间与进度估算剩余时间
     const eta = estimateETA(job);
     if (eta) {
       etaEl.textContent = eta;
@@ -401,7 +466,6 @@ function updateBuildUI(job) {
   }
 }
 
-// estimateETA 根据构建开始时间与已完成数量估算剩余时间，返回可读字符串。
 function estimateETA(job) {
   if (!job.started || !job.total || job.done <= 0) return '';
   const start = new Date(job.started).getTime();
@@ -433,25 +497,21 @@ $('#btn-build').addEventListener('click', async () => {
   $('#build-bar').style.width = '0%';
   setBuildBusy(true);
   try {
-    const job = await fetchJSON('/api/build', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    // 记录目录历史，便于下次直接从下拉选
+    await api.build(body);
     saveHistory('dir-history', body.dir);
-    pollBuild(job.id);
+    pollBuild();
   } catch (e) {
     setBuildBusy(false);
-    toast(e.message);
+    if (!$('#cfg-dir').value.trim() && e) toast(e);
+    toast(e);
   }
 });
 
-function pollBuild(id) {
+function pollBuild() {
   clearInterval(window._buildTimer);
   window._buildTimer = setInterval(async () => {
     try {
-      const st = await fetchJSON('/api/build/status');
+      const st = await api.buildStatus();
       updateBuildUI(st);
       if (st.state === 'done' || st.state === 'error') {
         clearInterval(window._buildTimer);
@@ -462,7 +522,7 @@ function pollBuild(id) {
     } catch (e) {
       clearInterval(window._buildTimer);
       setBuildBusy(false);
-      toast('轮询失败: ' + e.message);
+      toast('轮询失败: ' + e);
     }
   }, 500);
 }
@@ -471,19 +531,14 @@ $('#btn-load').addEventListener('click', async () => {
   const idx = $('#cfg-load').value.trim();
   setBuildBusy(true);
   try {
-    const res = await fetchJSON('/api/load', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ index: idx }),
-    });
+    const res = await api.load(idx);
     toast('已加载：' + res.images + ' 图像 / ' + res.regions + ' 区域');
-    // 记录索引路径历史，再清空输入框
     if (idx) saveHistory('index-history', idx);
     $('#cfg-load').value = '';
     refreshStatus();
     loadLibrary();
   } catch (e) {
-    toast(e.message);
+    toast(e);
   } finally {
     setBuildBusy(false);
   }
@@ -492,59 +547,63 @@ $('#btn-load').addEventListener('click', async () => {
 /* ---------------- 索引状态 ---------------- */
 async function refreshStatus() {
   try {
-    const st = await fetchJSON('/api/status');
+    const st = await api.status();
     libRoot = st.root || libRoot;
     $('#st-load').textContent = st.loaded ? '已加载' : '未加载';
     $('#st-images').textContent = st.images;
     $('#st-regions').textContent = st.regions;
     $('#st-index').textContent = st.indexPath || '-';
     $('#st-root').textContent = st.root || '-';
-    // 启动参数 -root / 已加载索引路径回填到输入框（仅当用户未输入时，避免覆盖）
     if (st.root && !$('#cfg-dir').value.trim()) $('#cfg-dir').value = st.root;
     if (st.indexPath && !$('#cfg-load').value.trim()) $('#cfg-load').value = st.indexPath;
     if (!st.build || st.build.state === 'idle') return;
     if (st.build.state === 'running') {
       $('#build-card').hidden = false;
-      pollBuild(st.build.id);
+      pollBuild();
       setBuildBusy(true);
     }
   } catch (e) { /* ignore */ }
 }
 
 /* ---------------- 调试 ---------------- */
-let segQuery = null;
-let segLabelMap = null;     // { data: Uint8ClampedArray, width, height }
+let segParams = null;
+let segLabelMap = null;
 let segRegionsById = new Map();
 
-function refreshSegImage() {
-  if (!segQuery) return;
-  $('#seg-img').src = '/api/segments.png?' + segQuery.toString();
+function currentSegParams() {
+  return {
+    path: $('#seg-path').value.trim(),
+    thresholdPct: parseFloat($('#seg-thr').value),
+    thresholdFactor: 1.0,
+    minAreaRatio: 0.0006,
+    medianFilterK: parseInt($('#seg-median').value, 10),
+    connectivity: parseInt(segVal('#seg-conn2'), 10),
+  };
 }
 
-// 加载标签图（每个像素编码区域 ID），用于鼠标悬停反查区域。
-async function loadSegLabelMap(query) {
-  const url = '/api/segments.map.png?' + query.toString();
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  const blob = await res.blob();
-  const urlObj = URL.createObjectURL(blob);
-  try {
-    const img = await new Promise((resolve, reject) => {
-      const i = new Image();
-      i.onload = () => resolve(i);
-      i.onerror = reject;
-      i.src = urlObj;
-    });
-    const canvas = document.createElement('canvas');
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0);
-    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    return { data: imgData.data, width: canvas.width, height: canvas.height };
-  } finally {
-    URL.revokeObjectURL(urlObj);
-  }
+function refreshSegImage() {
+  if (!segParams) return;
+  api.segmentsPNG(segParams.path, segParams, segVal('#seg-mode'))
+    .then(uri => { $('#seg-img').src = uri; })
+    .catch(() => {});
+}
+
+// 加载标签图（data URI），用于鼠标悬停反查区域。
+async function loadSegLabelMap(params) {
+  const uri = await api.segmentsMapPNG(params.path, params);
+  const img = await new Promise((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = reject;
+    i.src = uri;
+  });
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  return { data: imgData.data, width: canvas.width, height: canvas.height };
 }
 
 function labelAt(map, x, y) {
@@ -557,7 +616,6 @@ function showSegTip(clientX, clientY, html) {
   const tip = $('#seg-tip');
   tip.innerHTML = html;
   tip.hidden = false;
-  // 默认放在光标右下，靠近视口边缘则翻转
   const tw = tip.offsetWidth, th = tip.offsetHeight;
   const vw = window.innerWidth, vh = window.innerHeight;
   let left = clientX + 14;
@@ -570,22 +628,23 @@ function showSegTip(clientX, clientY, html) {
 
 function hideSegTip() { $('#seg-tip').hidden = true; }
 
+// 原生「浏览」按钮
+$('#btn-browse-seg').addEventListener('click', async () => {
+  try {
+    const p = await pickImage();
+    if (p) $('#seg-path').value = p;
+  } catch (e) { /* 取消 */ }
+});
+
 $('#btn-seg').addEventListener('click', async () => {
-  const path = $('#seg-path').value.trim();
-  if (!path) { toast('请输入图像路径'); return; }
-  segQuery = new URLSearchParams({
-    path,
-    thresholdPct: $('#seg-thr').value,
-    median: $('#seg-median').value,
-    connectivity: segVal('#seg-conn2'),
-    mode: segVal('#seg-mode'),
-  });
+  segParams = currentSegParams();
+  if (!segParams.path) { toast('请输入图像路径'); return; }
   $('#seg-busy').hidden = false;
   $('#btn-seg').disabled = true;
   try {
     const [data, labelMap] = await Promise.all([
-      fetchJSON('/api/segments?' + segQuery.toString()),
-      loadSegLabelMap(segQuery).catch(() => null),
+      api.segments(segParams.path, segParams),
+      loadSegLabelMap(segParams).catch(() => null),
     ]);
     $('#seg-info').textContent = '图像 ' + data.width + '×' + data.height + ' · ' + data.regions.length + ' 个区域';
     segLabelMap = labelMap;
@@ -607,22 +666,19 @@ $('#btn-seg').addEventListener('click', async () => {
       box.appendChild(div);
     });
   } catch (e) {
-    toast(e.message);
+    toast(e);
   } finally {
     $('#seg-busy').hidden = true;
     $('#btn-seg').disabled = false;
   }
 });
 
-// 切换区域可视化模式（边框 / 填色），仅刷新预览图。
 $('#seg-mode').addEventListener('click', e => {
   const btn = e.target.closest('button');
-  if (!btn || !segQuery) return;
-  segQuery.set('mode', btn.dataset.val);
+  if (!btn || !segParams) return;
   refreshSegImage();
 });
 
-// 鼠标悬停预览图时，按像素反查区域并展示信息。
 const segImg = $('#seg-img');
 segImg.addEventListener('mousemove', e => {
   if (!segLabelMap) return;
@@ -642,6 +698,26 @@ segImg.addEventListener('mousemove', e => {
   }
 });
 segImg.addEventListener('mouseleave', hideSegTip);
+
+/* ---------------- 索引页原生按钮 ---------------- */
+$('#btn-browse-dir').addEventListener('click', async () => {
+  try {
+    const p = await pickDir();
+    if (p) $('#cfg-dir').value = p;
+  } catch (e) { /* 取消 */ }
+});
+$('#btn-browse-out').addEventListener('click', async () => {
+  try {
+    const p = await pickImage();
+    if (p) $('#cfg-out').value = p;
+  } catch (e) { /* 取消 */ }
+});
+$('#btn-browse-load').addEventListener('click', async () => {
+  try {
+    const p = await pickIndex();
+    if (p) $('#cfg-load').value = p;
+  } catch (e) { /* 取消 */ }
+});
 
 /* ---------------- 启动 ---------------- */
 switchTab('search');
