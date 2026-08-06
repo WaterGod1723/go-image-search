@@ -9,7 +9,7 @@ const src = join(root, "src");
 mkdirSync(dist, { recursive: true });
 
 copyFileSync(join(root, "index.html"), join(dist, "index.html"));
-for (const f of ["app.js", "styles.css"]) {
+for (const f of ["app.js", "styles.css", "worker.js"]) {
   copyFileSync(join(src, f), join(dist, f));
 }
 

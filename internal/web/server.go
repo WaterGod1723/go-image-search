@@ -635,9 +635,7 @@ func (s *Server) handleImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ext := strings.ToLower(filepath.Ext(p))
-	switch ext {
-	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp":
-	default:
+	if _, ok := mimeByExt[ext]; !ok {
 		http.Error(w, "不支持的文件类型", http.StatusBadRequest)
 		return
 	}

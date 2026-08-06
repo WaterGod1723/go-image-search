@@ -6,15 +6,21 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"embed"
 	"fmt"
 	"os"
+	"path/filepath"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"go-image-search/internal/imageproc"
 	"go-image-search/internal/web"
 )
 
@@ -26,25 +32,112 @@ var guiAssets embed.FS
 type App struct {
 	*web.Server
 	ctx context.Context
+
+	convMu     sync.Mutex
+	convNextID atomic.Int64
+	convParts  map[string]chan convResult
+	convTO     time.Duration
+}
+
+// convResult webview 转换结果。
+type convResult struct {
+	png []byte
+	err error
 }
 
 // NewApp 创建桌面应用后端。
 func NewApp() *App {
-	srv := web.New(web.Options{IndexPath: "index.bin", Root: "."})
-	return &App{Server: srv}
+	srv := web.New(web.Options{IndexPath: defaultIndexPath(), Root: "."})
+	return &App{Server: srv, convParts: make(map[string]chan convResult), convTO: 30 * time.Second}
+}
+
+// defaultIndexPath 返回跨平台可写的默认索引路径（用户配置目录）。
+func defaultIndexPath() string {
+	dir, err := os.UserConfigDir()
+	if err != nil || dir == "" {
+		dir = "."
+	}
+	dir = filepath.Join(dir, "go-image-search")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "index.bin"
+	}
+	return filepath.Join(dir, "index.bin")
 }
 
 // Startup 保存 Wails 上下文并尽力加载默认索引，不阻塞窗口。
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
+	// 注入 webview 格式转换器：Go 原生解码失败（avif/svg 等）时交由前端
+	// 多线程 Worker 转换为 PNG 后回传。
+	imageproc.SetConverter(a.webviewConvert)
 	_ = a.LoadIndex()
+}
+
+// webviewConvert 将任意图片字节交给前端 Worker 池转换为 PNG 字节。
+// 通过事件 img:convert 派发，前端转换完成后调用 Converted/ConvertError 回传。
+func (a *App) webviewConvert(data []byte, format string) ([]byte, error) {
+	id := a.convNextID.Add(1) - 1
+	tag := fmt.Sprint(id)
+	ch := make(chan convResult, 1)
+	a.convMu.Lock()
+	a.convParts[tag] = ch
+	a.convMu.Unlock()
+	defer func() {
+		a.convMu.Lock()
+		delete(a.convParts, tag)
+		a.convMu.Unlock()
+	}()
+	runtime.EventsEmit(a.ctx, "img:convert", map[string]any{
+		"id":     tag,
+		"format": format,
+		"data":   base64.StdEncoding.EncodeToString(data),
+	})
+	select {
+	case r := <-ch:
+		return r.png, r.err
+	case <-time.After(a.convTO):
+		return nil, fmt.Errorf("webview 转换超时 (%s)", format)
+	}
+}
+
+// Converted 前端经 Worker 转换完成后回传 PNG（base64）。
+func (a *App) Converted(id string, pngBase64 string) {
+	a.deliverConvert(id, func() ([]byte, error) {
+		if pngBase64 == "" {
+			return nil, fmt.Errorf("空转换结果")
+		}
+		png, err := base64.StdEncoding.DecodeString(pngBase64)
+		if err != nil {
+			return nil, fmt.Errorf("解码转换结果: %v", err)
+		}
+		return png, nil
+	})
+}
+
+// ConvertError 前端上报转换失败。
+func (a *App) ConvertError(id, msg string) {
+	a.deliverConvert(id, func() ([]byte, error) { return nil, fmt.Errorf("%s", msg) })
+}
+
+func (a *App) deliverConvert(id string, fn func() ([]byte, error)) {
+	a.convMu.Lock()
+	ch, ok := a.convParts[id]
+	if ok {
+		delete(a.convParts, id)
+	}
+	a.convMu.Unlock()
+	if !ok {
+		return
+	}
+	png, err := fn()
+	ch <- convResult{png: png, err: err}
 }
 
 // PickImage 弹出原生"选择图片"对话框，返回文件路径（取消时为空字符串）。
 func (a *App) PickImage() (string, error) {
 	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title:   "选择图片",
-		Filters: []runtime.FileFilter{{DisplayName: "图片", Pattern: "*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp"}},
+		Filters: []runtime.FileFilter{{DisplayName: "图片", Pattern: "*.png;*.jpg;*.jpeg;*.gif;*.webp;*.bmp;*.tif;*.tiff;*.avif;*.svg"}},
 	})
 }
 

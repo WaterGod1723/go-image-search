@@ -2,7 +2,10 @@ module go-image-search
 
 go 1.25.0
 
-require github.com/wailsapp/wails/v2 v2.13.0
+require (
+	github.com/wailsapp/wails/v2 v2.13.0
+	golang.org/x/image v0.44.0
+)
 
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
@@ -32,5 +35,5 @@ require (
 	golang.org/x/crypto v0.51.0 // indirect
 	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/sys v0.44.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/text v0.40.0 // indirect
 )

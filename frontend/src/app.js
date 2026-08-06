@@ -99,6 +99,63 @@ function fillDatalist(key) {
 // 启动时填充历史下拉
 ['dir-history', 'index-history'].forEach(fillDatalist);
 
+/* ---------------- 用户输入持久化（localStorage） ---------------- */
+const SETTINGS_KEY = 'gis-settings';
+const SETTING_FIELDS = ['cfg-dir', 'cfg-out', 'cfg-thr', 'cfg-factor', 'cfg-minarea', 'cfg-median', 'cfg-load', 'seg-path', 'seg-thr', 'seg-median', 'color-range', 'maxdist-range'];
+const SETTING_SEGS = ['seg-top', 'seg-conn', 'seg-conn2'];
+
+function loadSettings() {
+  try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch (e) { return {}; }
+}
+function saveSettings() {
+  const s = {};
+  SETTING_FIELDS.forEach(id => { const el = document.getElementById(id); if (el) s[id] = el.value; });
+  SETTING_SEGS.forEach(id => {
+    const seg = document.getElementById(id);
+    const active = seg && seg.querySelector('button.active');
+    if (active) s[id] = active.dataset.val;
+  });
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch (e) { /* ignore */ }
+}
+function restoreSettings() {
+  const s = loadSettings();
+  SETTING_FIELDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el && s[id] != null) el.value = s[id];
+  });
+  SETTING_SEGS.forEach(id => {
+    const seg = document.getElementById(id);
+    if (!seg || s[id] == null) return;
+    $$('button', seg).forEach(b => b.classList.toggle('active', b.dataset.val === String(s[id])));
+  });
+  // 同步显示值
+  const colorRange = $('#color-range');
+  if (colorRange) $('#color-val').textContent = Number(colorRange.value).toFixed(2);
+  const maxdistRange = $('#maxdist-range');
+  if (maxdistRange) $('#maxdist-val').textContent = maxdistRange.value;
+}
+SETTING_FIELDS.forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('change', saveSettings);
+  if (el && el.type === 'range') el.addEventListener('input', saveSettings);
+});
+SETTING_SEGS.forEach(id => {
+  const seg = document.getElementById(id);
+  if (seg) seg.addEventListener('click', () => setTimeout(saveSettings, 0));
+});
+restoreSettings();
+
+/* ---------------- 上次索引路径持久化 ---------------- */
+const LAST_INDEX_KEY = 'gis-last-index';
+function getLastIndex() { return (localStorage.getItem(LAST_INDEX_KEY) || '').trim(); }
+function setLastIndex(p) {
+  p = (p || '').trim();
+  try {
+    if (p) localStorage.setItem(LAST_INDEX_KEY, p);
+    else localStorage.removeItem(LAST_INDEX_KEY);
+  } catch (e) { /* ignore */ }
+}
+
 /* ---------------- 检索策略切换 ---------------- */
 let currentAlgo = 'sczl';
 const algoLabels = { region: '区域', sczl: 'SCZL' };
@@ -517,7 +574,10 @@ function pollBuild() {
         clearInterval(window._buildTimer);
         setBuildBusy(false);
         refreshStatus();
-        if (st.state === 'done') loadLibrary();
+        if (st.state === 'done') {
+          setLastIndex(st.index);
+          loadLibrary();
+        }
       }
     } catch (e) {
       clearInterval(window._buildTimer);
@@ -533,7 +593,7 @@ $('#btn-load').addEventListener('click', async () => {
   try {
     const res = await api.load(idx);
     toast('已加载：' + res.images + ' 图像 / ' + res.regions + ' 区域');
-    if (idx) saveHistory('index-history', idx);
+    if (idx) { saveHistory('index-history', idx); setLastIndex(idx); }
     $('#cfg-load').value = '';
     refreshStatus();
     loadLibrary();
@@ -723,3 +783,149 @@ $('#btn-browse-load').addEventListener('click', async () => {
 switchTab('search');
 refreshAlgorithm();
 refreshStatus();
+
+// 自动加载上次使用的索引（库目录字段已由 restoreSettings 还原）。
+(async function autoLoadLastIndex() {
+  const p = getLastIndex();
+  if (!p) return;
+  try {
+    const res = await api.load(p);
+    toast('已恢复上次索引：' + res.images + ' 图像 / ' + res.regions + ' 区域');
+  } catch (e) { /* 静默：索引文件可能已移动或删除 */ }
+  refreshStatus();
+  loadLibrary();
+})();
+
+/* ---------------- 格式转换桥（webview 多线程 Worker） ---------------- */
+// Go 侧解码失败时经事件 img:convert 将原始字节(base64)交给浏览器，
+// 由 Worker 池并行解码并转成 PNG，再经 App.Converted 回传 Go。
+(function webviewConverter() {
+  const rt = window.runtime;
+  if (!rt || !App.Converted) return; // 无 Wails 环境（如纯网页）则跳过
+
+  function base64ToBytes(b64) {
+    const bin = atob(b64);
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return u8.buffer;
+  }
+  function base64FromBytes(u8) {
+    let bin = '';
+    for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+    return btoa(bin);
+  }
+
+  const WORKER_COUNT = Math.max(1, Math.min(4, navigator.hardwareConcurrency || 4));
+  const workers = [];
+  const idle = [];
+  const queue = [];
+  const pending = new Map(); // id -> {resolve, reject}
+  let nextId = 1;
+
+  function spawn() {
+    const w = new Worker('./worker.js');
+    let activeJob = null;
+    w.onmessage = (e) => {
+      const { id, png, error } = e.data || {};
+      const job = pending.get(id);
+      pending.delete(id);
+      if (job) {
+        if (error) job.reject(error);
+        else job.resolve(base64FromBytes(new Uint8Array(png)));
+      }
+      activeJob = null;
+      idle.push(w);
+      pump();
+    };
+    w.onerror = (ev) => {
+      // worker 加载失败或运行期崩溃：拒绝其正在处理的任务，避免 Go 侧死等超时。
+      if (activeJob) {
+        const job = pending.get(activeJob);
+        pending.delete(activeJob);
+        if (job) job.reject('worker error: ' + (ev && ev.message || 'unknown'));
+        activeJob = null;
+      }
+      const idx = workers.indexOf(w);
+      if (idx >= 0) workers.splice(idx, 1);
+      pump();
+    };
+    w._take = (job) => { activeJob = job.msg.id; };
+    workers.push(w);
+    idle.push(w);
+  }
+  for (let i = 0; i < WORKER_COUNT; i++) spawn();
+
+  function pump() {
+    while (idle.length && queue.length) {
+      const w = idle.pop();
+      const job = queue.shift();
+      if (w._take) w._take(job);
+      w.postMessage(job.msg, [job.msg.data]);
+    }
+  }
+
+  function dispatch(msg) {
+    return new Promise((resolve, reject) => {
+      const id = nextId++;
+      msg.id = id;
+      pending.set(id, { resolve, reject });
+      queue.push({ msg });
+      pump();
+    });
+  }
+
+  // 主线程兜底：栅格化 SVG（HTMLImageElement 是唯一可靠的 SVG 光栅化器）
+  function rasterizeSvg(bytes, format) {
+    return new Promise((resolve, reject) => {
+      const blob = new Blob([bytes], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          let w = img.naturalWidth || 0;
+          let h = img.naturalHeight || 0;
+          if (!w || !h) {
+            // 仅 viewBox、无 width/height 的 SVG：解析 viewBox 取尺寸。
+            const vb = parseViewBox(bytes);
+            if (vb) { w = w || vb.w; h = h || vb.h; }
+          }
+          if (!w || !h) { w = w || 128; h = h || 128; }
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          canvas.toBlob(b => {
+            URL.revokeObjectURL(url);
+            if (!b) return reject('svg rasterize failed');
+            b.arrayBuffer().then(ab => resolve(base64FromBytes(new Uint8Array(ab))), reject);
+          }, 'image/png');
+        } catch (err) { URL.revokeObjectURL(url); reject(err); }
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject('svg load failed'); };
+      img.src = url;
+    });
+  }
+
+  // 从 SVG 字节中解析 viewBox 的宽高（无 width/height 时兜底）。
+  function parseViewBox(bytes) {
+    try {
+      const text = new TextDecoder().decode(bytes).slice(0, 2048);
+      const m = text.match(/viewBox=["'\s]+([\d.\d-]+)\s+([\d.\d-]+)\s+([\d.]+)\s+([\d.]+)/i);
+      if (m) return { w: Math.max(1, Math.round(parseFloat(m[3]))), h: Math.max(1, Math.round(parseFloat(m[4]))) };
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+
+  rt.EventsOn('img:convert', (task) => {
+    // Wails 把 Go 端 EventsEmit 的单个参数作为回调的首个入参传入。
+    if (!task || !task.id) return;
+    const fmt = String(task.format || '').replace(/^\./, '').toLowerCase();
+    const bytes = base64ToBytes(task.data);
+    const p = (fmt === 'svg')
+      ? rasterizeSvg(bytes, fmt)
+      : dispatch({ data: bytes, format: fmt });
+    p.then(pngB64 => App.Converted(String(task.id), pngB64))
+      .catch(err => { if (App.ConvertError) App.ConvertError(String(task.id), String(err)); });
+  });
+})();

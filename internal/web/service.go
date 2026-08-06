@@ -4,7 +4,6 @@
 package web
 
 import (
-	"bytes"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -285,7 +284,7 @@ func (s *Server) QueryData(dataURL string, top, maxdist int, colorWeight float64
 			return QueryResult{}, fmt.Errorf("无法解析图片数据: %v", err)
 		}
 	}
-	img, _, err := image.Decode(bytes.NewReader(data))
+	img, err := imageproc.DecodeAny(data, "")
 	if err != nil {
 		return QueryResult{}, fmt.Errorf("无法解析图像: %v", err)
 	}
@@ -434,6 +433,10 @@ var mimeByExt = map[string]string{
 	".gif":  "image/gif",
 	".webp": "image/webp",
 	".bmp":  "image/bmp",
+	".tif":  "image/tiff",
+	".tiff": "image/tiff",
+	".avif": "image/avif",
+	".svg":  "image/svg+xml",
 }
 
 // ImageDataURI 将本地图像编码为 data URI，供桌面 WebView 展示。
