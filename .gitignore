@@ -21,6 +21,7 @@ go.work.sum
 
 # Build output
 /bin/
+/dist/
 
 # Wails desktop output & generated files
 /build/
@@ -46,3 +47,4 @@ ml/data/
 ml/models/
 ml/onnxruntime/
 test_pngs_trimmed/
+docs/
