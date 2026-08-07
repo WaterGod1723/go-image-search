@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"embed"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -47,7 +48,7 @@ type convResult struct {
 
 // NewApp 创建桌面应用后端。
 func NewApp() *App {
-	srv := web.New(web.Options{IndexPath: defaultIndexPath(), Root: "."})
+	srv := web.New(web.Options{IndexPath: defaultIndexPath(), Root: ".", Writer: io.Discard})
 	return &App{Server: srv, convParts: make(map[string]chan convResult), convTO: 30 * time.Second}
 }
 

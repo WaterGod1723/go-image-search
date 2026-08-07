@@ -10,6 +10,7 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
 	"io/fs"
 	"log"
 	"math"
@@ -36,6 +37,7 @@ var embeddedAssets embed.FS
 type Options struct {
 	IndexPath string // 默认索引文件路径
 	Root      string // 图像库根目录，用于浏览/缩略图
+	Writer    io.Writer // 日志输出，nil 时默认 os.Stdout
 }
 
 // Server Web 服务。
@@ -84,9 +86,13 @@ func New(opts Options) *Server {
 	if opts.Root == "" {
 		opts.Root = "."
 	}
+	w := opts.Writer
+	if w == nil {
+		w = os.Stdout
+	}
 	return &Server{
 		opts:      opts,
-		logger:    log.New(os.Stdout, "[web] ", log.LstdFlags),
+		logger:    log.New(w, "[web] ", log.LstdFlags),
 		algorithm: "sczl",
 	}
 }
