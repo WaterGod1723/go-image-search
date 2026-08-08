@@ -1,0 +1,4852 @@
+[
+  {
+    "image": "sample_00000.png",
+    "src": "check_box.png",
+    "crop": [
+      48,
+      25,
+      207,
+      206
+    ],
+    "canvas": [
+      416,
+      426
+    ],
+    "bg_hex": "#b11e71",
+    "rotation": 0,
+    "scale": 0.8337339785120017,
+    "translate": [
+      121,
+      145
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "99392",
+        "size": 80,
+        "x": 354,
+        "y": 4,
+        "color": "#141414"
+      },
+      {
+        "side": "left",
+        "text": "查看926",
+        "size": 101,
+        "x": 65,
+        "y": 43,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "旗舰",
+        "size": 51,
+        "x": 74,
+        "y": 381,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00001.png",
+    "src": "gongzishouru.png",
+    "crop": [
+      24,
+      0,
+      252,
+      300
+    ],
+    "canvas": [
+      396,
+      433
+    ],
+    "bg_hex": "#5fdfc3",
+    "rotation": -31.061317295805793,
+    "scale": 0.6529704060086459,
+    "translate": [
+      -5,
+      144
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00002.png",
+    "src": "auto_awesome_motion.png",
+    "crop": [
+      48,
+      13,
+      208,
+      207
+    ],
+    "canvas": [
+      419,
+      469
+    ],
+    "bg_hex": "#3e7e2d",
+    "rotation": 50.63546082997988,
+    "scale": 1.6473923611244852,
+    "translate": [
+      -186,
+      -8
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "会员139",
+        "size": 73,
+        "x": 6,
+        "y": 152,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "商店102",
+        "size": 102,
+        "x": 379,
+        "y": 36,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "详情769",
+        "size": 70,
+        "x": 16,
+        "y": 415,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "查看",
+        "size": 48,
+        "x": 133,
+        "y": 9,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00003.png",
+    "src": "phone_in_talk.png",
+    "crop": [
+      45,
+      24,
+      204,
+      204
+    ],
+    "canvas": [
+      380,
+      432
+    ],
+    "bg_hex": "#645b7e",
+    "rotation": 153.73069453947335,
+    "scale": 1.1646444393162712,
+    "translate": [
+      35,
+      31
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "热卖",
+        "size": 62,
+        "x": 218,
+        "y": 15,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "满减467",
+        "size": 53,
+        "x": 377,
+        "y": 56,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "HOT",
+        "size": 112,
+        "x": 33,
+        "y": 356,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "NEW",
+        "size": 62,
+        "x": 27,
+        "y": 252,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00004.png",
+    "src": "check_box.png",
+    "crop": [
+      48,
+      25,
+      207,
+      206
+    ],
+    "canvas": [
+      535,
+      580
+    ],
+    "bg_hex": "#63347e",
+    "rotation": 128.45808324515332,
+    "scale": 2.1236127022179168,
+    "translate": [
+      64,
+      154
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "点击315",
+        "size": 147,
+        "x": 492,
+        "y": 22,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00005.png",
+    "src": "wenju.png",
+    "crop": [
+      0,
+      10,
+      300,
+      280
+    ],
+    "canvas": [
+      565,
+      635
+    ],
+    "bg_hex": "#1fa044",
+    "rotation": 129.70751616410536,
+    "scale": 1.2099345006609719,
+    "translate": [
+      -134,
+      -192
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "旗舰202",
+        "size": 125,
+        "x": 60,
+        "y": 26,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "点击301",
+        "size": 140,
+        "x": 3,
+        "y": 535,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "领券",
+        "size": 174,
+        "x": 10,
+        "y": 39,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "特价650",
+        "size": 104,
+        "x": 559,
+        "y": 107,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00006.png",
+    "src": "yiliaoyaopin.png",
+    "crop": [
+      0,
+      26,
+      300,
+      248
+    ],
+    "canvas": [
+      541,
+      541
+    ],
+    "bg_hex": "#755bb6",
+    "rotation": -144.04412512821085,
+    "scale": 0.9771548021026725,
+    "translate": [
+      33,
+      78
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00007.png",
+    "src": "qitazafei.png",
+    "crop": [
+      0,
+      32,
+      300,
+      236
+    ],
+    "canvas": [
+      552,
+      644
+    ],
+    "bg_hex": "#8b3361",
+    "rotation": 77.40818703669231,
+    "scale": 0.8215899563506005,
+    "translate": [
+      175,
+      -136
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "热卖",
+        "size": 89,
+        "x": 496,
+        "y": 290,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "热卖468",
+        "size": 142,
+        "x": 9,
+        "y": 557,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "领券73",
+        "size": 103,
+        "x": 40,
+        "y": 20,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00008.png",
+    "src": "check_box.png",
+    "crop": [
+      48,
+      25,
+      207,
+      206
+    ],
+    "canvas": [
+      444,
+      483
+    ],
+    "bg_hex": "#4aa69f",
+    "rotation": 0,
+    "scale": 2.926613578621966,
+    "translate": [
+      -56,
+      -192
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "详情884",
+        "size": 49,
+        "x": 13,
+        "y": 34,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "热卖21",
+        "size": 117,
+        "x": 60,
+        "y": 26,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "热卖",
+        "size": 123,
+        "x": 68,
+        "y": 363,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00009.png",
+    "src": "zufangfangdai.png",
+    "crop": [
+      0,
+      27,
+      300,
+      246
+    ],
+    "canvas": [
+      447,
+      447
+    ],
+    "bg_hex": "#286d1d",
+    "rotation": -145.60634060063063,
+    "scale": 0.6263992324809032,
+    "translate": [
+      59,
+      -189
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "会员413",
+        "size": 83,
+        "x": 57,
+        "y": 14,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00010.png",
+    "src": "sancan.png",
+    "crop": [
+      10,
+      0,
+      280,
+      300
+    ],
+    "canvas": [
+      503,
+      477
+    ],
+    "bg_hex": "#a67788",
+    "rotation": 33.798636525047556,
+    "scale": 1.25474085104776,
+    "translate": [
+      127,
+      -102
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "选购531",
+        "size": 92,
+        "x": 139,
+        "y": 402,
+        "color": "#ffffff"
+      },
+      {
+        "side": "top",
+        "text": "旗舰",
+        "size": 123,
+        "x": 212,
+        "y": 21,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "查看",
+        "size": 49,
+        "x": 474,
+        "y": 234,
+        "color": "#141414"
+      },
+      {
+        "side": "left",
+        "text": "99",
+        "size": 132,
+        "x": 102,
+        "y": 161,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00011.png",
+    "src": "content_cut.png",
+    "crop": [
+      50,
+      20,
+      203,
+      212
+    ],
+    "canvas": [
+      386,
+      480
+    ],
+    "bg_hex": "#95bf2d",
+    "rotation": -113.76126317714736,
+    "scale": 1.0441697992104297,
+    "translate": [
+      41,
+      141
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "查看82",
+        "size": 98,
+        "x": 32,
+        "y": 98,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00012.png",
+    "src": "danche.png",
+    "crop": [
+      0,
+      48,
+      300,
+      204
+    ],
+    "canvas": [
+      420,
+      406
+    ],
+    "bg_hex": "#c3d18e",
+    "rotation": 129.51601168288317,
+    "scale": 0.7860396475390511,
+    "translate": [
+      -116,
+      88
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "福利213",
+        "size": 79,
+        "x": 68,
+        "y": 9,
+        "color": "#ffffff"
+      },
+      {
+        "side": "top",
+        "text": "查看978",
+        "size": 55,
+        "x": 82,
+        "y": 9,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "选购563",
+        "size": 48,
+        "x": 139,
+        "y": 359,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "HOT487",
+        "size": 103,
+        "x": 418,
+        "y": 2,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00013.png",
+    "src": "danche.png",
+    "crop": [
+      0,
+      48,
+      300,
+      204
+    ],
+    "canvas": [
+      486,
+      486
+    ],
+    "bg_hex": "#263e45",
+    "rotation": -0.9879028418603184,
+    "scale": 1.2069308353589934,
+    "translate": [
+      73,
+      -41
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "NEW719",
+        "size": 70,
+        "x": 84,
+        "y": 428,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "旗舰",
+        "size": 130,
+        "x": 41,
+        "y": 2,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "50",
+        "size": 134,
+        "x": 430,
+        "y": 152,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "热卖",
+        "size": 119,
+        "x": 24,
+        "y": 55,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00014.png",
+    "src": "support_agent.png",
+    "crop": [
+      28,
+      24,
+      241,
+      216
+    ],
+    "canvas": [
+      525,
+      525
+    ],
+    "bg_hex": "#332a7d",
+    "rotation": 137.42354240822596,
+    "scale": 1.2234163865389407,
+    "translate": [
+      -29,
+      -192
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "详情963",
+        "size": 141,
+        "x": 131,
+        "y": 0,
+        "color": "#ffffff"
+      },
+      {
+        "side": "top",
+        "text": "SALE",
+        "size": 117,
+        "x": 114,
+        "y": 8,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "热卖",
+        "size": 79,
+        "x": 233,
+        "y": 461,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "福利",
+        "size": 114,
+        "x": 429,
+        "y": 89,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00015.png",
+    "src": "lingshi.png",
+    "crop": [
+      3,
+      0,
+      294,
+      300
+    ],
+    "canvas": [
+      384,
+      485
+    ],
+    "bg_hex": "#4344bb",
+    "rotation": 0,
+    "scale": 0.6832171511657755,
+    "translate": [
+      62,
+      -84
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "会员",
+        "size": 76,
+        "x": 5,
+        "y": 2,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "点击",
+        "size": 122,
+        "x": 341,
+        "y": 3,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00016.png",
+    "src": "jiayoutingche.png",
+    "crop": [
+      0,
+      26,
+      300,
+      248
+    ],
+    "canvas": [
+      374,
+      398
+    ],
+    "bg_hex": "#cb6b45",
+    "rotation": -167.9961247966247,
+    "scale": 0.8511988625519549,
+    "translate": [
+      62,
+      -104
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "会员812",
+        "size": 68,
+        "x": 56,
+        "y": 350,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "选购",
+        "size": 87,
+        "x": 301,
+        "y": 112,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "选购914",
+        "size": 94,
+        "x": 15,
+        "y": 5,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00017.png",
+    "src": "wuyeweixiu.png",
+    "crop": [
+      36,
+      0,
+      228,
+      300
+    ],
+    "canvas": [
+      377,
+      352
+    ],
+    "bg_hex": "#694894",
+    "rotation": 92.44961707828435,
+    "scale": 1.6835685636482696,
+    "translate": [
+      -72,
+      126
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "热卖937",
+        "size": 40,
+        "x": 17,
+        "y": 136,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "会员609",
+        "size": 45,
+        "x": 376,
+        "y": 131,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "点击647",
+        "size": 57,
+        "x": 65,
+        "y": 18,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "特价448",
+        "size": 70,
+        "x": 102,
+        "y": 298,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00018.png",
+    "src": "dache.png",
+    "crop": [
+      0,
+      48,
+      300,
+      204
+    ],
+    "canvas": [
+      498,
+      498
+    ],
+    "bg_hex": "#9d944e",
+    "rotation": 0,
+    "scale": 0.8288522682660917,
+    "translate": [
+      -19,
+      171
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "新品",
+        "size": 124,
+        "x": 386,
+        "y": 19,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "满减186",
+        "size": 56,
+        "x": 100,
+        "y": 469,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "领券",
+        "size": 135,
+        "x": 94,
+        "y": 75,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00019.png",
+    "src": "maicaishicai.png",
+    "crop": [
+      1,
+      0,
+      298,
+      300
+    ],
+    "canvas": [
+      414,
+      541
+    ],
+    "bg_hex": "#932d21",
+    "rotation": -62.009815743281436,
+    "scale": 0.6076165086523266,
+    "translate": [
+      105,
+      155
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "满减709",
+        "size": 68,
+        "x": 142,
+        "y": 495,
+        "color": "#ffffff"
+      },
+      {
+        "side": "top",
+        "text": "新品576",
+        "size": 102,
+        "x": 10,
+        "y": 10,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "详情",
+        "size": 75,
+        "x": 386,
+        "y": 94,
+        "color": "#141414"
+      },
+      {
+        "side": "left",
+        "text": "旗舰406",
+        "size": 137,
+        "x": 9,
+        "y": 0,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00020.png",
+    "src": "lijinrenqing.png",
+    "crop": [
+      12,
+      0,
+      276,
+      300
+    ],
+    "canvas": [
+      542,
+      485
+    ],
+    "bg_hex": "#19c057",
+    "rotation": 148.4378748110488,
+    "scale": 0.6968832941141937,
+    "translate": [
+      -145,
+      212
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "SALE483",
+        "size": 87,
+        "x": 488,
+        "y": 12,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00021.png",
+    "src": "account_balance.png",
+    "crop": [
+      41,
+      12,
+      221,
+      218
+    ],
+    "canvas": [
+      493,
+      505
+    ],
+    "bg_hex": "#566c26",
+    "rotation": -131.45310344218345,
+    "scale": 1.5928284611214707,
+    "translate": [
+      142,
+      59
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00022.png",
+    "src": "check_box.png",
+    "crop": [
+      48,
+      25,
+      207,
+      206
+    ],
+    "canvas": [
+      584,
+      460
+    ],
+    "bg_hex": "#b293a8",
+    "rotation": 0,
+    "scale": 1.0016780878138951,
+    "translate": [
+      261,
+      32
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00023.png",
+    "src": "zujinshouru.png",
+    "crop": [
+      0,
+      27,
+      300,
+      246
+    ],
+    "canvas": [
+      661,
+      661
+    ],
+    "bg_hex": "#69c29a",
+    "rotation": 87.56080413807598,
+    "scale": 1.3438372453182008,
+    "translate": [
+      -18,
+      175
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "旗舰",
+        "size": 96,
+        "x": 1,
+        "y": 39,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "旗舰",
+        "size": 172,
+        "x": 307,
+        "y": 33,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "特价",
+        "size": 93,
+        "x": 656,
+        "y": 171,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00024.png",
+    "src": "yiliaoyaopin.png",
+    "crop": [
+      0,
+      26,
+      300,
+      248
+    ],
+    "canvas": [
+      459,
+      459
+    ],
+    "bg_hex": "#494723",
+    "rotation": 161.5958455879915,
+    "scale": 0.6570870170801087,
+    "translate": [
+      -3,
+      170
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "点击",
+        "size": 90,
+        "x": 269,
+        "y": 25,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "SALE328",
+        "size": 97,
+        "x": 30,
+        "y": 362,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00025.png",
+    "src": "dingyuehuiyuan.png",
+    "crop": [
+      0,
+      14,
+      300,
+      272
+    ],
+    "canvas": [
+      587,
+      587
+    ],
+    "bg_hex": "#84c8dc",
+    "rotation": 91.64502464082722,
+    "scale": 1.372312676585283,
+    "translate": [
+      -119,
+      119
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "特价",
+        "size": 118,
+        "x": 65,
+        "y": 97,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00026.png",
+    "src": "jiushuiyanjiu.png",
+    "crop": [
+      17,
+      0,
+      266,
+      300
+    ],
+    "canvas": [
+      576,
+      576
+    ],
+    "bg_hex": "#76ac7d",
+    "rotation": -174.52265966613393,
+    "scale": 1.276560241674,
+    "translate": [
+      -12,
+      -37
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "99613",
+        "size": 64,
+        "x": 360,
+        "y": 8,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "新品222",
+        "size": 60,
+        "x": 558,
+        "y": 189,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "商店284",
+        "size": 156,
+        "x": 0,
+        "y": 467,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "会员493",
+        "size": 93,
+        "x": 18,
+        "y": 58,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00027.png",
+    "src": "colors.png",
+    "crop": [
+      34,
+      20,
+      229,
+      213
+    ],
+    "canvas": [
+      521,
+      581
+    ],
+    "bg_hex": "#91407a",
+    "rotation": -89.80142322115779,
+    "scale": 1.5808832548729477,
+    "translate": [
+      -78,
+      -216
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "点击",
+        "size": 131,
+        "x": 212,
+        "y": 35,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00028.png",
+    "src": "assistant.png",
+    "crop": [
+      32,
+      12,
+      234,
+      233
+    ],
+    "canvas": [
+      731,
+      699
+    ],
+    "bg_hex": "#706246",
+    "rotation": 0,
+    "scale": 2.2078585984075225,
+    "translate": [
+      -119,
+      -156
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "查看",
+        "size": 133,
+        "x": 184,
+        "y": 39,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "SALE",
+        "size": 101,
+        "x": 714,
+        "y": 133,
+        "color": "#141414"
+      },
+      {
+        "side": "left",
+        "text": "50",
+        "size": 127,
+        "x": 91,
+        "y": 390,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "领券",
+        "size": 184,
+        "x": 108,
+        "y": 595,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00029.png",
+    "src": "perm_phone.png",
+    "crop": [
+      44,
+      18,
+      218,
+      217
+    ],
+    "canvas": [
+      406,
+      484
+    ],
+    "bg_hex": "#20aa45",
+    "rotation": 13.1153469439285,
+    "scale": 1.1268607599206553,
+    "translate": [
+      5,
+      165
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "会员",
+        "size": 108,
+        "x": 72,
+        "y": 153,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "福利",
+        "size": 125,
+        "x": 70,
+        "y": 420,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00030.png",
+    "src": "colors.png",
+    "crop": [
+      34,
+      20,
+      229,
+      213
+    ],
+    "canvas": [
+      368,
+      410
+    ],
+    "bg_hex": "#d2cf99",
+    "rotation": 167.57686213923745,
+    "scale": 1.1121392536784234,
+    "translate": [
+      -108,
+      -86
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "HOT",
+        "size": 46,
+        "x": 17,
+        "y": 0,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00031.png",
+    "src": "settings_76dp_434343_FILL0_wght400_GRAD0_opsz48.png",
+    "crop": [
+      84,
+      17,
+      171,
+      176
+    ],
+    "canvas": [
+      609,
+      528
+    ],
+    "bg_hex": "#79a98a",
+    "rotation": -82.54121039429265,
+    "scale": 2.027348212709081,
+    "translate": [
+      -14,
+      125
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "NEW",
+        "size": 115,
+        "x": 576,
+        "y": 207,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00032.png",
+    "src": "cheliangbaoyang.png",
+    "crop": [
+      0,
+      37,
+      300,
+      226
+    ],
+    "canvas": [
+      546,
+      542
+    ],
+    "bg_hex": "#7eab41",
+    "rotation": 169.05151903788533,
+    "scale": 1.8386791479830644,
+    "translate": [
+      150,
+      182
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "新品724",
+        "size": 66,
+        "x": 498,
+        "y": 129,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "商店",
+        "size": 87,
+        "x": 185,
+        "y": 470,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00033.png",
+    "src": "yiliaoyaopin.png",
+    "crop": [
+      0,
+      26,
+      300,
+      248
+    ],
+    "canvas": [
+      560,
+      603
+    ],
+    "bg_hex": "#902c59",
+    "rotation": 11.22162629051843,
+    "scale": 1.4285687836938972,
+    "translate": [
+      -45,
+      250
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "福利",
+        "size": 65,
+        "x": 46,
+        "y": 138,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00034.png",
+    "src": "perm_phone.png",
+    "crop": [
+      44,
+      18,
+      218,
+      217
+    ],
+    "canvas": [
+      515,
+      481
+    ],
+    "bg_hex": "#e2d9dc",
+    "rotation": -150.22461410166895,
+    "scale": 1.2872156019394096,
+    "translate": [
+      -196,
+      -24
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "NEW",
+        "size": 80,
+        "x": 16,
+        "y": 84,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "福利",
+        "size": 121,
+        "x": 482,
+        "y": 41,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "满减",
+        "size": 97,
+        "x": 105,
+        "y": 25,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "福利",
+        "size": 84,
+        "x": 277,
+        "y": 416,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00035.png",
+    "src": "auto_awesome_motion.png",
+    "crop": [
+      48,
+      13,
+      208,
+      207
+    ],
+    "canvas": [
+      546,
+      535
+    ],
+    "bg_hex": "#74c531",
+    "rotation": 68.14610640384413,
+    "scale": 1.4137295381526256,
+    "translate": [
+      91,
+      -75
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "HOT815",
+        "size": 60,
+        "x": 27,
+        "y": 131,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "会员603",
+        "size": 110,
+        "x": 16,
+        "y": 20,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "HOT",
+        "size": 149,
+        "x": 426,
+        "y": 100,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "点击809",
+        "size": 83,
+        "x": 105,
+        "y": 457,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00036.png",
+    "src": "shuiguo.png",
+    "crop": [
+      0,
+      24,
+      300,
+      252
+    ],
+    "canvas": [
+      363,
+      344
+    ],
+    "bg_hex": "#60e543",
+    "rotation": 0,
+    "scale": 0.7305012280782351,
+    "translate": [
+      0,
+      -108
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "会员",
+        "size": 57,
+        "x": 77,
+        "y": 12,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "点击",
+        "size": 91,
+        "x": 273,
+        "y": 144,
+        "color": "#141414"
+      },
+      {
+        "side": "left",
+        "text": "特价",
+        "size": 37,
+        "x": 12,
+        "y": 103,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00037.png",
+    "src": "colors.png",
+    "crop": [
+      34,
+      20,
+      229,
+      213
+    ],
+    "canvas": [
+      489,
+      489
+    ],
+    "bg_hex": "#791b61",
+    "rotation": -11.699047584134036,
+    "scale": 1.3864177477644286,
+    "translate": [
+      147,
+      83
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "SALE971",
+        "size": 64,
+        "x": 37,
+        "y": 13,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "HOT",
+        "size": 78,
+        "x": 227,
+        "y": 434,
+        "color": "#ffffff"
+      },
+      {
+        "side": "top",
+        "text": "特价684",
+        "size": 135,
+        "x": 0,
+        "y": 24,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00038.png",
+    "src": "phone_in_talk.png",
+    "crop": [
+      45,
+      24,
+      204,
+      204
+    ],
+    "canvas": [
+      517,
+      505
+    ],
+    "bg_hex": "#d47bbc",
+    "rotation": 0,
+    "scale": 1.2912362180199382,
+    "translate": [
+      -89,
+      131
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "99",
+        "size": 51,
+        "x": 45,
+        "y": 473,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "HOT",
+        "size": 81,
+        "x": 72,
+        "y": 11,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "99",
+        "size": 83,
+        "x": 471,
+        "y": 210,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00039.png",
+    "src": "check_box.png",
+    "crop": [
+      48,
+      25,
+      207,
+      206
+    ],
+    "canvas": [
+      489,
+      602
+    ],
+    "bg_hex": "#577483",
+    "rotation": 53.09458325819324,
+    "scale": 1.1984655635697365,
+    "translate": [
+      118,
+      -255
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "点击468",
+        "size": 99,
+        "x": 54,
+        "y": 121,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00040.png",
+    "src": "fact_check.png",
+    "crop": [
+      36,
+      17,
+      229,
+      203
+    ],
+    "canvas": [
+      396,
+      396
+    ],
+    "bg_hex": "#2cd36f",
+    "rotation": -115.63948717396546,
+    "scale": 0.9264693319451512,
+    "translate": [
+      6,
+      -24
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "HOT",
+        "size": 66,
+        "x": 373,
+        "y": 139,
+        "color": "#ffffff"
+      },
+      {
+        "side": "top",
+        "text": "旗舰",
+        "size": 91,
+        "x": 158,
+        "y": 21,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00041.png",
+    "src": "wenju.png",
+    "crop": [
+      0,
+      10,
+      300,
+      280
+    ],
+    "canvas": [
+      427,
+      427
+    ],
+    "bg_hex": "#933b66",
+    "rotation": -140.34382784781653,
+    "scale": 0.8602219795521319,
+    "translate": [
+      -129,
+      -63
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00042.png",
+    "src": "fact_check.png",
+    "crop": [
+      36,
+      17,
+      229,
+      203
+    ],
+    "canvas": [
+      539,
+      539
+    ],
+    "bg_hex": "#ce2acd",
+    "rotation": -13.289562481757741,
+    "scale": 1.0112020720350379,
+    "translate": [
+      122,
+      -70
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "NEW533",
+        "size": 134,
+        "x": 0,
+        "y": 35,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00043.png",
+    "src": "sancan.png",
+    "crop": [
+      10,
+      0,
+      280,
+      300
+    ],
+    "canvas": [
+      394,
+      440
+    ],
+    "bg_hex": "#292e88",
+    "rotation": 80.90928325474971,
+    "scale": 1.3281695868960284,
+    "translate": [
+      27,
+      70
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00044.png",
+    "src": "guolufei.png",
+    "crop": [
+      0,
+      24,
+      300,
+      252
+    ],
+    "canvas": [
+      454,
+      454
+    ],
+    "bg_hex": "#4b869d",
+    "rotation": 0,
+    "scale": 0.8014069862088594,
+    "translate": [
+      -178,
+      -65
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00045.png",
+    "src": "sancan.png",
+    "crop": [
+      10,
+      0,
+      280,
+      300
+    ],
+    "canvas": [
+      499,
+      496
+    ],
+    "bg_hex": "#a358d2",
+    "rotation": -161.88564569473343,
+    "scale": 0.718274320630714,
+    "translate": [
+      -32,
+      -53
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "NEW",
+        "size": 120,
+        "x": 388,
+        "y": 184,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00046.png",
+    "src": "waimai.png",
+    "crop": [
+      0,
+      23,
+      300,
+      254
+    ],
+    "canvas": [
+      479,
+      479
+    ],
+    "bg_hex": "#d15d90",
+    "rotation": 72.8578325617218,
+    "scale": 1.1819436319421603,
+    "translate": [
+      -116,
+      25
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "选购",
+        "size": 109,
+        "x": 75,
+        "y": 397,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "查看",
+        "size": 129,
+        "x": 371,
+        "y": 16,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "会员",
+        "size": 83,
+        "x": 47,
+        "y": 1,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00047.png",
+    "src": "cheliangbaoyang.png",
+    "crop": [
+      0,
+      37,
+      300,
+      226
+    ],
+    "canvas": [
+      679,
+      613
+    ],
+    "bg_hex": "#7482c0",
+    "rotation": 144.8465224884149,
+    "scale": 1.1942742612842872,
+    "translate": [
+      -85,
+      -145
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "50",
+        "size": 169,
+        "x": 122,
+        "y": 34,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00048.png",
+    "src": "person_edit.png",
+    "crop": [
+      28,
+      28,
+      249,
+      217
+    ],
+    "canvas": [
+      604,
+      718
+    ],
+    "bg_hex": "#9224a2",
+    "rotation": -96.68103876103234,
+    "scale": 0.8500080629933185,
+    "translate": [
+      262,
+      119
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "福利14",
+        "size": 144,
+        "x": 117,
+        "y": 20,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00049.png",
+    "src": "shuiguo.png",
+    "crop": [
+      0,
+      24,
+      300,
+      252
+    ],
+    "canvas": [
+      490,
+      540
+    ],
+    "bg_hex": "#538b24",
+    "rotation": -25.810044347317955,
+    "scale": 1.3487867188382014,
+    "translate": [
+      95,
+      11
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "旗舰391",
+        "size": 123,
+        "x": 39,
+        "y": 51,
+        "color": "#ffffff"
+      },
+      {
+        "side": "top",
+        "text": "领券",
+        "size": 85,
+        "x": 224,
+        "y": 18,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "50",
+        "size": 120,
+        "x": 253,
+        "y": 453,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "详情",
+        "size": 137,
+        "x": 415,
+        "y": 243,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00050.png",
+    "src": "jiushuiyanjiu.png",
+    "crop": [
+      17,
+      0,
+      266,
+      300
+    ],
+    "canvas": [
+      591,
+      591
+    ],
+    "bg_hex": "#4b3221",
+    "rotation": 2.9401356938242884,
+    "scale": 1.6093542002071892,
+    "translate": [
+      34,
+      203
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "福利162",
+        "size": 90,
+        "x": 535,
+        "y": 208,
+        "color": "#ffffff"
+      },
+      {
+        "side": "top",
+        "text": "查看",
+        "size": 72,
+        "x": 182,
+        "y": 11,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00051.png",
+    "src": "wenju.png",
+    "crop": [
+      0,
+      10,
+      300,
+      280
+    ],
+    "canvas": [
+      469,
+      580
+    ],
+    "bg_hex": "#6f52c3",
+    "rotation": -114.17891290513516,
+    "scale": 1.2804453854313167,
+    "translate": [
+      -87,
+      159
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "领券550",
+        "size": 140,
+        "x": 392,
+        "y": 5,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00052.png",
+    "src": "grid_view.png",
+    "crop": [
+      38,
+      18,
+      221,
+      220
+    ],
+    "canvas": [
+      501,
+      482
+    ],
+    "bg_hex": "#b37580",
+    "rotation": -113.99281796127478,
+    "scale": 0.8574058564927962,
+    "translate": [
+      -125,
+      -102
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "选购353",
+        "size": 72,
+        "x": 136,
+        "y": 17,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "查看568",
+        "size": 52,
+        "x": 133,
+        "y": 436,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "查看",
+        "size": 65,
+        "x": 33,
+        "y": 105,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "详情",
+        "size": 117,
+        "x": 494,
+        "y": 163,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00053.png",
+    "src": "yinpin.png",
+    "crop": [
+      14,
+      0,
+      272,
+      300
+    ],
+    "canvas": [
+      469,
+      452
+    ],
+    "bg_hex": "#6fb85a",
+    "rotation": 27.310881873651482,
+    "scale": 1.1724368975371886,
+    "translate": [
+      -56,
+      -188
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "特价",
+        "size": 93,
+        "x": 3,
+        "y": 20,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "福利64",
+        "size": 64,
+        "x": 427,
+        "y": 59,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00054.png",
+    "src": "yexiao.png",
+    "crop": [
+      0,
+      20,
+      300,
+      260
+    ],
+    "canvas": [
+      583,
+      616
+    ],
+    "bg_hex": "#a461dc",
+    "rotation": 170.2930699624992,
+    "scale": 2.561229388744964,
+    "translate": [
+      -184,
+      -204
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "领券",
+        "size": 144,
+        "x": 167,
+        "y": 520,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "会员935",
+        "size": 92,
+        "x": 20,
+        "y": 11,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "SALE",
+        "size": 105,
+        "x": 517,
+        "y": 151,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "新品",
+        "size": 153,
+        "x": 273,
+        "y": 9,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00055.png",
+    "src": "corporate_fare.png",
+    "crop": [
+      35,
+      19,
+      228,
+      206
+    ],
+    "canvas": [
+      551,
+      488
+    ],
+    "bg_hex": "#8c9e51",
+    "rotation": 7.844839399923387,
+    "scale": 1.2721984115314338,
+    "translate": [
+      -207,
+      208
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "领券",
+        "size": 132,
+        "x": 150,
+        "y": 40,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00056.png",
+    "src": "fact_check.png",
+    "crop": [
+      36,
+      17,
+      229,
+      203
+    ],
+    "canvas": [
+      499,
+      472
+    ],
+    "bg_hex": "#aa8357",
+    "rotation": 44.18879473759213,
+    "scale": 0.9585438278138255,
+    "translate": [
+      -10,
+      85
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00057.png",
+    "src": "danche.png",
+    "crop": [
+      0,
+      48,
+      300,
+      204
+    ],
+    "canvas": [
+      328,
+      331
+    ],
+    "bg_hex": "#32821a",
+    "rotation": -155.32161289606842,
+    "scale": 0.8915668466650047,
+    "translate": [
+      -145,
+      45
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "满减",
+        "size": 78,
+        "x": 107,
+        "y": 279,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00058.png",
+    "src": "danche.png",
+    "crop": [
+      0,
+      48,
+      300,
+      204
+    ],
+    "canvas": [
+      548,
+      529
+    ],
+    "bg_hex": "#5b29d3",
+    "rotation": 72.27385164375261,
+    "scale": 0.8640012099338984,
+    "translate": [
+      -130,
+      -116
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "50124",
+        "size": 118,
+        "x": 195,
+        "y": 5,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "热卖45",
+        "size": 134,
+        "x": 442,
+        "y": 69,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "查看",
+        "size": 136,
+        "x": 240,
+        "y": 429,
+        "color": "#141414"
+      },
+      {
+        "side": "left",
+        "text": "992",
+        "size": 62,
+        "x": 46,
+        "y": 288,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00059.png",
+    "src": "jiayoutingche.png",
+    "crop": [
+      0,
+      26,
+      300,
+      248
+    ],
+    "canvas": [
+      439,
+      338
+    ],
+    "bg_hex": "#447794",
+    "rotation": 12.798981034203393,
+    "scale": 0.4298026242906511,
+    "translate": [
+      162,
+      67
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "NEW967",
+        "size": 93,
+        "x": 3,
+        "y": 6,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "旗舰",
+        "size": 83,
+        "x": 16,
+        "y": 288,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00060.png",
+    "src": "jiushuiyanjiu.png",
+    "crop": [
+      17,
+      0,
+      266,
+      300
+    ],
+    "canvas": [
+      461,
+      455
+    ],
+    "bg_hex": "#70a9d3",
+    "rotation": 40.461344132905225,
+    "scale": 0.6798392729663895,
+    "translate": [
+      -155,
+      5
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "领券",
+        "size": 63,
+        "x": 23,
+        "y": 402,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "满减807",
+        "size": 52,
+        "x": 452,
+        "y": 221,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00061.png",
+    "src": "jucanqingke.png",
+    "crop": [
+      0,
+      26,
+      300,
+      248
+    ],
+    "canvas": [
+      445,
+      445
+    ],
+    "bg_hex": "#b36ed4",
+    "rotation": 122.51395175551414,
+    "scale": 0.6284374444997746,
+    "translate": [
+      -179,
+      189
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "查看",
+        "size": 101,
+        "x": 54,
+        "y": 188,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00062.png",
+    "src": "account_balance.png",
+    "crop": [
+      41,
+      12,
+      221,
+      218
+    ],
+    "canvas": [
+      551,
+      479
+    ],
+    "bg_hex": "#88a1e3",
+    "rotation": 86.32388618250377,
+    "scale": 1.7989505152975274,
+    "translate": [
+      -205,
+      -163
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "热卖328",
+        "size": 104,
+        "x": 55,
+        "y": 69,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "福利",
+        "size": 100,
+        "x": 506,
+        "y": 103,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "热卖877",
+        "size": 70,
+        "x": 173,
+        "y": 435,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00063.png",
+    "src": "edit_square.png",
+    "crop": [
+      48,
+      0,
+      214,
+      212
+    ],
+    "canvas": [
+      396,
+      396
+    ],
+    "bg_hex": "#6280c6",
+    "rotation": 144.37941476093766,
+    "scale": 1.195701153139637,
+    "translate": [
+      -175,
+      -65
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "选购",
+        "size": 98,
+        "x": 92,
+        "y": 23,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "会员",
+        "size": 53,
+        "x": 51,
+        "y": 95,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "热卖",
+        "size": 91,
+        "x": 35,
+        "y": 334,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "爆款",
+        "size": 75,
+        "x": 331,
+        "y": 54,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00064.png",
+    "src": "lingshi.png",
+    "crop": [
+      3,
+      0,
+      294,
+      300
+    ],
+    "canvas": [
+      345,
+      414
+    ],
+    "bg_hex": "#328872",
+    "rotation": 103.39228563335922,
+    "scale": 0.8375707588368538,
+    "translate": [
+      59,
+      135
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "点击",
+        "size": 44,
+        "x": 335,
+        "y": 90,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "选购",
+        "size": 90,
+        "x": 29,
+        "y": 160,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "会员639",
+        "size": 114,
+        "x": 0,
+        "y": 331,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "福利810",
+        "size": 60,
+        "x": 93,
+        "y": 18,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00065.png",
+    "src": "dianyingyanchu.png",
+    "crop": [
+      0,
+      32,
+      300,
+      236
+    ],
+    "canvas": [
+      510,
+      510
+    ],
+    "bg_hex": "#646494",
+    "rotation": -156.97296503027803,
+    "scale": 1.0529296650766817,
+    "translate": [
+      -119,
+      180
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "特价",
+        "size": 123,
+        "x": 34,
+        "y": 398,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "选购248",
+        "size": 98,
+        "x": 36,
+        "y": 24,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "50",
+        "size": 107,
+        "x": 41,
+        "y": 289,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00066.png",
+    "src": "zujinshouru.png",
+    "crop": [
+      0,
+      27,
+      300,
+      246
+    ],
+    "canvas": [
+      654,
+      641
+    ],
+    "bg_hex": "#d7989f",
+    "rotation": 55.80218512079455,
+    "scale": 1.7491593450673164,
+    "translate": [
+      200,
+      30
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "SALE",
+        "size": 100,
+        "x": 267,
+        "y": 18,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "HOT",
+        "size": 130,
+        "x": 196,
+        "y": 530,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "详情300",
+        "size": 161,
+        "x": 606,
+        "y": 8,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00067.png",
+    "src": "zujinshouru.png",
+    "crop": [
+      0,
+      27,
+      300,
+      246
+    ],
+    "canvas": [
+      619,
+      605
+    ],
+    "bg_hex": "#dbbb82",
+    "rotation": 32.046985970145585,
+    "scale": 1.4530744918620113,
+    "translate": [
+      -12,
+      134
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00068.png",
+    "src": "baoxiaotuikuan.png",
+    "crop": [
+      0,
+      28,
+      300,
+      244
+    ],
+    "canvas": [
+      509,
+      475
+    ],
+    "bg_hex": "#b2c331",
+    "rotation": 161.3915196758731,
+    "scale": 1.605588377480648,
+    "translate": [
+      -11,
+      -114
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "特价847",
+        "size": 75,
+        "x": 203,
+        "y": 426,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "热卖85",
+        "size": 58,
+        "x": 488,
+        "y": 205,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "福利",
+        "size": 70,
+        "x": 232,
+        "y": 10,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00069.png",
+    "src": "guolufei.png",
+    "crop": [
+      0,
+      24,
+      300,
+      252
+    ],
+    "canvas": [
+      534,
+      500
+    ],
+    "bg_hex": "#dd9ca0",
+    "rotation": -16.89561208062804,
+    "scale": 1.0561714610707942,
+    "translate": [
+      -126,
+      -102
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "点击",
+        "size": 95,
+        "x": 275,
+        "y": 1,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "商店752",
+        "size": 92,
+        "x": 469,
+        "y": 31,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "点击",
+        "size": 81,
+        "x": 34,
+        "y": 419,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "福利857",
+        "size": 59,
+        "x": 51,
+        "y": 163,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00070.png",
+    "src": "sancan.png",
+    "crop": [
+      10,
+      0,
+      280,
+      300
+    ],
+    "canvas": [
+      474,
+      474
+    ],
+    "bg_hex": "#85b561",
+    "rotation": -125.99935253942128,
+    "scale": 1.2661598963670377,
+    "translate": [
+      138,
+      156
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00071.png",
+    "src": "dache.png",
+    "crop": [
+      0,
+      48,
+      300,
+      204
+    ],
+    "canvas": [
+      415,
+      415
+    ],
+    "bg_hex": "#76421c",
+    "rotation": 0,
+    "scale": 0.8056355566301294,
+    "translate": [
+      74,
+      47
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "满减698",
+        "size": 44,
+        "x": 383,
+        "y": 108,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "SALE",
+        "size": 79,
+        "x": 39,
+        "y": 53,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "满减",
+        "size": 106,
+        "x": 6,
+        "y": 317,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "领券332",
+        "size": 52,
+        "x": 176,
+        "y": 16,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00072.png",
+    "src": "perm_phone.png",
+    "crop": [
+      44,
+      18,
+      218,
+      217
+    ],
+    "canvas": [
+      570,
+      570
+    ],
+    "bg_hex": "#d635e4",
+    "rotation": 82.19322378558195,
+    "scale": 1.9350008235543894,
+    "translate": [
+      -203,
+      252
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "选购779",
+        "size": 129,
+        "x": 54,
+        "y": 15,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "领券",
+        "size": 69,
+        "x": 538,
+        "y": 348,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "SALE",
+        "size": 114,
+        "x": 295,
+        "y": 506,
+        "color": "#141414"
+      },
+      {
+        "side": "left",
+        "text": "旗舰",
+        "size": 67,
+        "x": 39,
+        "y": 295,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00073.png",
+    "src": "wenju.png",
+    "crop": [
+      0,
+      10,
+      300,
+      280
+    ],
+    "canvas": [
+      477,
+      477
+    ],
+    "bg_hex": "#438b6f",
+    "rotation": -6.132311439643246,
+    "scale": 0.935653257680396,
+    "translate": [
+      -60,
+      98
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "满减589",
+        "size": 51,
+        "x": 471,
+        "y": 103,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00074.png",
+    "src": "delete_76dp_434343_FILL0_wght400_GRAD0_opsz48.png",
+    "crop": [
+      59,
+      27,
+      188,
+      211
+    ],
+    "canvas": [
+      662,
+      570
+    ],
+    "bg_hex": "#5dc08e",
+    "rotation": 51.475041502670365,
+    "scale": 1.5939906309779102,
+    "translate": [
+      -212,
+      235
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "福利",
+        "size": 89,
+        "x": 637,
+        "y": 346,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "爆款656",
+        "size": 149,
+        "x": 22,
+        "y": 434,
+        "color": "#141414"
+      },
+      {
+        "side": "left",
+        "text": "NEW",
+        "size": 93,
+        "x": 85,
+        "y": 274,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00075.png",
+    "src": "zufangfangdai.png",
+    "crop": [
+      0,
+      27,
+      300,
+      246
+    ],
+    "canvas": [
+      680,
+      680
+    ],
+    "bg_hex": "#4a8fa3",
+    "rotation": 131.06606759225207,
+    "scale": 1.4265704506422803,
+    "translate": [
+      37,
+      92
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "新品",
+        "size": 115,
+        "x": 626,
+        "y": 59,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "NEW",
+        "size": 74,
+        "x": 490,
+        "y": 631,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "福利",
+        "size": 130,
+        "x": 85,
+        "y": 395,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00076.png",
+    "src": "perm_phone.png",
+    "crop": [
+      44,
+      18,
+      218,
+      217
+    ],
+    "canvas": [
+      439,
+      402
+    ],
+    "bg_hex": "#562c42",
+    "rotation": 65.53451917878772,
+    "scale": 1.134660392979213,
+    "translate": [
+      -110,
+      47
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "旗舰988",
+        "size": 73,
+        "x": 6,
+        "y": 17,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "SALE",
+        "size": 110,
+        "x": 177,
+        "y": 338,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "NEW",
+        "size": 82,
+        "x": 397,
+        "y": 26,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00077.png",
+    "src": "danche.png",
+    "crop": [
+      0,
+      48,
+      300,
+      204
+    ],
+    "canvas": [
+      491,
+      519
+    ],
+    "bg_hex": "#779b66",
+    "rotation": 101.523060966674,
+    "scale": 0.8390906229860007,
+    "translate": [
+      174,
+      -210
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "99",
+        "size": 57,
+        "x": 99,
+        "y": 0,
+        "color": "#141414"
+      },
+      {
+        "side": "left",
+        "text": "HOT555",
+        "size": 76,
+        "x": 7,
+        "y": 73,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00078.png",
+    "src": "guolufei.png",
+    "crop": [
+      0,
+      24,
+      300,
+      252
+    ],
+    "canvas": [
+      460,
+      490
+    ],
+    "bg_hex": "#ca766b",
+    "rotation": 0,
+    "scale": 0.5567042607694579,
+    "translate": [
+      143,
+      204
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00079.png",
+    "src": "huoche.png",
+    "crop": [
+      35,
+      0,
+      230,
+      300
+    ],
+    "canvas": [
+      338,
+      395
+    ],
+    "bg_hex": "#7f73ac",
+    "rotation": -107.36273475326652,
+    "scale": 0.7814815133989574,
+    "translate": [
+      128,
+      -87
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "点击",
+        "size": 64,
+        "x": 301,
+        "y": 107,
+        "color": "#ffffff"
+      },
+      {
+        "side": "top",
+        "text": "查看178",
+        "size": 56,
+        "x": 2,
+        "y": 8,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "领券",
+        "size": 78,
+        "x": 33,
+        "y": 317,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00080.png",
+    "src": "yexiao.png",
+    "crop": [
+      0,
+      20,
+      300,
+      260
+    ],
+    "canvas": [
+      462,
+      431
+    ],
+    "bg_hex": "#cd8440",
+    "rotation": -109.0627533422548,
+    "scale": 0.7694801726323818,
+    "translate": [
+      -168,
+      -147
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "领券810",
+        "size": 114,
+        "x": 16,
+        "y": 321,
+        "color": "#141414"
+      },
+      {
+        "side": "left",
+        "text": "特价",
+        "size": 79,
+        "x": 24,
+        "y": 110,
+        "color": "#ffffff"
+      },
+      {
+        "side": "top",
+        "text": "旗舰875",
+        "size": 58,
+        "x": 173,
+        "y": 17,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00081.png",
+    "src": "youxihuiyuan.png",
+    "crop": [
+      0,
+      31,
+      300,
+      238
+    ],
+    "canvas": [
+      396,
+      477
+    ],
+    "bg_hex": "#7736c0",
+    "rotation": 0,
+    "scale": 0.5625526304125107,
+    "translate": [
+      26,
+      201
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00082.png",
+    "src": "contract_edit.png",
+    "crop": [
+      47,
+      15,
+      214,
+      214
+    ],
+    "canvas": [
+      413,
+      382
+    ],
+    "bg_hex": "#c93268",
+    "rotation": 157.26074262599258,
+    "scale": 1.2907625146620896,
+    "translate": [
+      -56,
+      39
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "福利",
+        "size": 62,
+        "x": 6,
+        "y": 209,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "满减",
+        "size": 57,
+        "x": 411,
+        "y": 19,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00083.png",
+    "src": "home_work_76dp_434343_FILL0_wght400_GRAD0_opsz48.png",
+    "crop": [
+      28,
+      27,
+      246,
+      202
+    ],
+    "canvas": [
+      533,
+      538
+    ],
+    "bg_hex": "#721fb3",
+    "rotation": -76.44195078679876,
+    "scale": 2.9536740789993776,
+    "translate": [
+      175,
+      -204
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "会员556",
+        "size": 140,
+        "x": 1,
+        "y": 413,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00084.png",
+    "src": "cheliangbaoyang.png",
+    "crop": [
+      0,
+      37,
+      300,
+      226
+    ],
+    "canvas": [
+      551,
+      551
+    ],
+    "bg_hex": "#6f6edf",
+    "rotation": 25.150479445362834,
+    "scale": 0.716278469417222,
+    "translate": [
+      -105,
+      -121
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "满减",
+        "size": 93,
+        "x": 170,
+        "y": 30,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00085.png",
+    "src": "hongbaolijin.png",
+    "crop": [
+      0,
+      30,
+      300,
+      240
+    ],
+    "canvas": [
+      607,
+      537
+    ],
+    "bg_hex": "#356b1f",
+    "rotation": -9.401684541682215,
+    "scale": 1.3594480897289491,
+    "translate": [
+      61,
+      51
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "会员",
+        "size": 145,
+        "x": 132,
+        "y": 27,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "新品",
+        "size": 67,
+        "x": 127,
+        "y": 5,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00086.png",
+    "src": "baoxiaotuikuan.png",
+    "crop": [
+      0,
+      28,
+      300,
+      244
+    ],
+    "canvas": [
+      616,
+      732
+    ],
+    "bg_hex": "#7b5d68",
+    "rotation": -15.792886931154726,
+    "scale": 1.276807888504135,
+    "translate": [
+      -74,
+      327
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "HOT",
+        "size": 183,
+        "x": 117,
+        "y": 638,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "福利",
+        "size": 199,
+        "x": 417,
+        "y": 84,
+        "color": "#ffffff"
+      },
+      {
+        "side": "top",
+        "text": "点击",
+        "size": 89,
+        "x": 55,
+        "y": 19,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "SALE773",
+        "size": 151,
+        "x": 132,
+        "y": 7,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00087.png",
+    "src": "account_balance.png",
+    "crop": [
+      41,
+      12,
+      221,
+      218
+    ],
+    "canvas": [
+      633,
+      506
+    ],
+    "bg_hex": "#4ec055",
+    "rotation": -31.581926821589178,
+    "scale": 0.8651020753505763,
+    "translate": [
+      -133,
+      115
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "商店",
+        "size": 98,
+        "x": 596,
+        "y": 58,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "详情",
+        "size": 140,
+        "x": 97,
+        "y": 412,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00088.png",
+    "src": "shuidianranqi.png",
+    "crop": [
+      0,
+      82,
+      300,
+      136
+    ],
+    "canvas": [
+      360,
+      353
+    ],
+    "bg_hex": "#b79e38",
+    "rotation": 0,
+    "scale": 0.9029822265059687,
+    "translate": [
+      -22,
+      151
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "NEW",
+        "size": 38,
+        "x": 355,
+        "y": 152,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "FREE",
+        "size": 63,
+        "x": 67,
+        "y": 18,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "会员",
+        "size": 73,
+        "x": 120,
+        "y": 291,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00089.png",
+    "src": "check_box.png",
+    "crop": [
+      48,
+      25,
+      207,
+      206
+    ],
+    "canvas": [
+      504,
+      543
+    ],
+    "bg_hex": "#3f717e",
+    "rotation": 118.15174227058941,
+    "scale": 1.4556966256235284,
+    "translate": [
+      -82,
+      -161
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "新品219",
+        "size": 134,
+        "x": 471,
+        "y": 18,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00090.png",
+    "src": "zufangfangdai.png",
+    "crop": [
+      0,
+      27,
+      300,
+      246
+    ],
+    "canvas": [
+      632,
+      702
+    ],
+    "bg_hex": "#ac2b79",
+    "rotation": -73.83562111548122,
+    "scale": 2.585235526926224,
+    "translate": [
+      228,
+      241
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "新品",
+        "size": 139,
+        "x": 305,
+        "y": 594,
+        "color": "#141414"
+      },
+      {
+        "side": "left",
+        "text": "特价419",
+        "size": 157,
+        "x": 44,
+        "y": 74,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00091.png",
+    "src": "dashboard_76dp.png",
+    "crop": [
+      41,
+      17,
+      216,
+      215
+    ],
+    "canvas": [
+      547,
+      465
+    ],
+    "bg_hex": "#99853f",
+    "rotation": -87.85786126937116,
+    "scale": 1.0970749164237221,
+    "translate": [
+      196,
+      -146
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "SALE",
+        "size": 122,
+        "x": 242,
+        "y": 9,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "满减923",
+        "size": 60,
+        "x": 526,
+        "y": 51,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00092.png",
+    "src": "riyongqingjie.png",
+    "crop": [
+      0,
+      20,
+      300,
+      260
+    ],
+    "canvas": [
+      438,
+      438
+    ],
+    "bg_hex": "#373592",
+    "rotation": -67.68552794421262,
+    "scale": 1.105794742281951,
+    "translate": [
+      144,
+      -6
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "福利",
+        "size": 83,
+        "x": 433,
+        "y": 20,
+        "color": "#ffffff"
+      },
+      {
+        "side": "top",
+        "text": "查看",
+        "size": 72,
+        "x": 37,
+        "y": 11,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00093.png",
+    "src": "shoujikuandai.png",
+    "crop": [
+      0,
+      54,
+      300,
+      192
+    ],
+    "canvas": [
+      502,
+      500
+    ],
+    "bg_hex": "#3d6b4e",
+    "rotation": -89.12590974123695,
+    "scale": 0.5952039473663183,
+    "translate": [
+      73,
+      163
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00094.png",
+    "src": "riyongqingjie.png",
+    "crop": [
+      0,
+      20,
+      300,
+      260
+    ],
+    "canvas": [
+      503,
+      559
+    ],
+    "bg_hex": "#a8cc3f",
+    "rotation": -146.75805589134586,
+    "scale": 1.1168009560767287,
+    "translate": [
+      162,
+      129
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "99",
+        "size": 96,
+        "x": 465,
+        "y": 436,
+        "color": "#141414"
+      },
+      {
+        "side": "left",
+        "text": "查看435",
+        "size": 89,
+        "x": 62,
+        "y": 75,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "SALE",
+        "size": 60,
+        "x": 102,
+        "y": 520,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00095.png",
+    "src": "wuyeweixiu.png",
+    "crop": [
+      36,
+      0,
+      228,
+      300
+    ],
+    "canvas": [
+      581,
+      488
+    ],
+    "bg_hex": "#c7d33a",
+    "rotation": 35.62730336128291,
+    "scale": 1.0967720818890565,
+    "translate": [
+      225,
+      -218
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "特价58",
+        "size": 96,
+        "x": 37,
+        "y": 23,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00096.png",
+    "src": "youxihuiyuan.png",
+    "crop": [
+      0,
+      31,
+      300,
+      238
+    ],
+    "canvas": [
+      448,
+      448
+    ],
+    "bg_hex": "#a79d67",
+    "rotation": 70.95128385670336,
+    "scale": 0.8177515717071906,
+    "translate": [
+      142,
+      142
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "选购295",
+        "size": 117,
+        "x": 359,
+        "y": 7,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00097.png",
+    "src": "assistant.png",
+    "crop": [
+      32,
+      12,
+      234,
+      233
+    ],
+    "canvas": [
+      640,
+      564
+    ],
+    "bg_hex": "#9648b5",
+    "rotation": 30.012932041857795,
+    "scale": 1.2964188656958986,
+    "translate": [
+      106,
+      0
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "SALE",
+        "size": 139,
+        "x": 175,
+        "y": 13,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "50356",
+        "size": 60,
+        "x": 140,
+        "y": 504,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "查看420",
+        "size": 84,
+        "x": 41,
+        "y": 212,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00098.png",
+    "src": "yiliaoyaopin.png",
+    "crop": [
+      0,
+      26,
+      300,
+      248
+    ],
+    "canvas": [
+      448,
+      423
+    ],
+    "bg_hex": "#b5a08f",
+    "rotation": -38.383421386290564,
+    "scale": 0.5660996332041128,
+    "translate": [
+      -149,
+      -84
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "旗舰684",
+        "size": 92,
+        "x": 32,
+        "y": 41,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "点击",
+        "size": 89,
+        "x": 259,
+        "y": 6,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "NEW",
+        "size": 42,
+        "x": 440,
+        "y": 258,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00099.png",
+    "src": "person_edit.png",
+    "crop": [
+      28,
+      28,
+      249,
+      217
+    ],
+    "canvas": [
+      668,
+      668
+    ],
+    "bg_hex": "#3abd39",
+    "rotation": -71.50587469029203,
+    "scale": 1.0336992973435446,
+    "translate": [
+      30,
+      -44
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "点击",
+        "size": 112,
+        "x": 441,
+        "y": 6,
+        "color": "#141414"
+      },
+      {
+        "side": "left",
+        "text": "点击",
+        "size": 139,
+        "x": 3,
+        "y": 243,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "爆款",
+        "size": 89,
+        "x": 597,
+        "y": 355,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00100.png",
+    "src": "dingyuehuiyuan.png",
+    "crop": [
+      0,
+      14,
+      300,
+      272
+    ],
+    "canvas": [
+      725,
+      671
+    ],
+    "bg_hex": "#9a2174",
+    "rotation": 177.8135946559778,
+    "scale": 1.0845626213376889,
+    "translate": [
+      67,
+      -202
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "商店665",
+        "size": 185,
+        "x": 7,
+        "y": 7,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "选购398",
+        "size": 104,
+        "x": 162,
+        "y": 570,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00101.png",
+    "src": "yiliaoyaopin.png",
+    "crop": [
+      0,
+      26,
+      300,
+      248
+    ],
+    "canvas": [
+      501,
+      392
+    ],
+    "bg_hex": "#b25723",
+    "rotation": 111.60812511256842,
+    "scale": 0.48013957133561824,
+    "translate": [
+      -152,
+      -61
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "SALE898",
+        "size": 79,
+        "x": 41,
+        "y": 316,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00102.png",
+    "src": "zufangfangdai.png",
+    "crop": [
+      0,
+      27,
+      300,
+      246
+    ],
+    "canvas": [
+      601,
+      601
+    ],
+    "bg_hex": "#8b3755",
+    "rotation": 132.5397621454705,
+    "scale": 1.177454857167808,
+    "translate": [
+      197,
+      -145
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "热卖",
+        "size": 79,
+        "x": 410,
+        "y": 3,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "商店",
+        "size": 162,
+        "x": 518,
+        "y": 103,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "新品",
+        "size": 81,
+        "x": 240,
+        "y": 549,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00103.png",
+    "src": "dianyingyanchu.png",
+    "crop": [
+      0,
+      32,
+      300,
+      236
+    ],
+    "canvas": [
+      392,
+      383
+    ],
+    "bg_hex": "#766ee2",
+    "rotation": -34.829768338171704,
+    "scale": 1.0750840334751608,
+    "translate": [
+      -155,
+      -76
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "99210",
+        "size": 79,
+        "x": 26,
+        "y": 137,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "详情",
+        "size": 98,
+        "x": 64,
+        "y": 333,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "99",
+        "size": 51,
+        "x": 367,
+        "y": 262,
+        "color": "#ffffff"
+      },
+      {
+        "side": "top",
+        "text": "商店",
+        "size": 47,
+        "x": 258,
+        "y": 5,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00104.png",
+    "src": "shuji.png",
+    "crop": [
+      6,
+      0,
+      288,
+      300
+    ],
+    "canvas": [
+      416,
+      416
+    ],
+    "bg_hex": "#2aad78",
+    "rotation": -70.87268469281965,
+    "scale": 1.4125472687358516,
+    "translate": [
+      -120,
+      -23
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "热卖",
+        "size": 55,
+        "x": 1,
+        "y": 300,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00105.png",
+    "src": "dingyuehuiyuan.png",
+    "crop": [
+      0,
+      14,
+      300,
+      272
+    ],
+    "canvas": [
+      590,
+      501
+    ],
+    "bg_hex": "#42c5bf",
+    "rotation": -174.93244304373655,
+    "scale": 1.2550955758167317,
+    "translate": [
+      -198,
+      63
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "特价729",
+        "size": 132,
+        "x": 20,
+        "y": 399,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "详情509",
+        "size": 110,
+        "x": 524,
+        "y": 68,
+        "color": "#ffffff"
+      },
+      {
+        "side": "top",
+        "text": "爆款",
+        "size": 79,
+        "x": 99,
+        "y": 11,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "特价587",
+        "size": 81,
+        "x": 10,
+        "y": 134,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00106.png",
+    "src": "feiji.png",
+    "crop": [
+      0,
+      68,
+      300,
+      164
+    ],
+    "canvas": [
+      481,
+      481
+    ],
+    "bg_hex": "#935f87",
+    "rotation": 104.48995327296251,
+    "scale": 0.8072001887011909,
+    "translate": [
+      -130,
+      215
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "领券172",
+        "size": 129,
+        "x": 35,
+        "y": 0,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "NEW",
+        "size": 70,
+        "x": 29,
+        "y": 417,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "新品137",
+        "size": 134,
+        "x": 412,
+        "y": 0,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "选购665",
+        "size": 118,
+        "x": 6,
+        "y": 28,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00107.png",
+    "src": "zujinshouru.png",
+    "crop": [
+      0,
+      27,
+      300,
+      246
+    ],
+    "canvas": [
+      592,
+      593
+    ],
+    "bg_hex": "#d0c02b",
+    "rotation": -157.0417795703996,
+    "scale": 1.5992839125145373,
+    "translate": [
+      -263,
+      -20
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "FREE128",
+        "size": 160,
+        "x": 532,
+        "y": 0,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00108.png",
+    "src": "jiayoutingche.png",
+    "crop": [
+      0,
+      26,
+      300,
+      248
+    ],
+    "canvas": [
+      686,
+      563
+    ],
+    "bg_hex": "#b51fd4",
+    "rotation": 126.23537766057137,
+    "scale": 1.4282615031928578,
+    "translate": [
+      -48,
+      26
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "会员257",
+        "size": 64,
+        "x": 25,
+        "y": 514,
+        "color": "#ffffff"
+      },
+      {
+        "side": "top",
+        "text": "查看920",
+        "size": 108,
+        "x": 267,
+        "y": 20,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "查看367",
+        "size": 128,
+        "x": 106,
+        "y": 41,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "50575",
+        "size": 74,
+        "x": 624,
+        "y": 80,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00109.png",
+    "src": "dashboard_76dp.png",
+    "crop": [
+      41,
+      17,
+      216,
+      215
+    ],
+    "canvas": [
+      477,
+      402
+    ],
+    "bg_hex": "#a271c5",
+    "rotation": -37.221183713996794,
+    "scale": 0.8891165321900566,
+    "translate": [
+      198,
+      -112
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "商店",
+        "size": 107,
+        "x": 161,
+        "y": 24,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "福利593",
+        "size": 44,
+        "x": 451,
+        "y": 144,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00110.png",
+    "src": "jiayoutingche.png",
+    "crop": [
+      0,
+      26,
+      300,
+      248
+    ],
+    "canvas": [
+      396,
+      396
+    ],
+    "bg_hex": "#915f50",
+    "rotation": -176.8685626361749,
+    "scale": 0.5266226470425126,
+    "translate": [
+      -93,
+      2
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "点击",
+        "size": 43,
+        "x": 92,
+        "y": 7,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "商店76",
+        "size": 93,
+        "x": 44,
+        "y": 49,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00111.png",
+    "src": "fushixiebao.png",
+    "crop": [
+      0,
+      65,
+      300,
+      170
+    ],
+    "canvas": [
+      549,
+      533
+    ],
+    "bg_hex": "#9eaa3d",
+    "rotation": -132.05829365549545,
+    "scale": 1.0872280308580127,
+    "translate": [
+      -216,
+      42
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "详情",
+        "size": 102,
+        "x": 91,
+        "y": 13,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00112.png",
+    "src": "feiji.png",
+    "crop": [
+      0,
+      68,
+      300,
+      164
+    ],
+    "canvas": [
+      413,
+      494
+    ],
+    "bg_hex": "#deb994",
+    "rotation": -148.65989744035133,
+    "scale": 0.9316254926585197,
+    "translate": [
+      -126,
+      -150
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "50",
+        "size": 130,
+        "x": 90,
+        "y": 142,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "HOT",
+        "size": 96,
+        "x": 153,
+        "y": 11,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "旗舰68",
+        "size": 89,
+        "x": 105,
+        "y": 427,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "福利712",
+        "size": 114,
+        "x": 367,
+        "y": 31,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00113.png",
+    "src": "cheliangbaoyang.png",
+    "crop": [
+      0,
+      37,
+      300,
+      226
+    ],
+    "canvas": [
+      387,
+      394
+    ],
+    "bg_hex": "#3933a3",
+    "rotation": -86.2076231425859,
+    "scale": 1.9231769041593703,
+    "translate": [
+      -6,
+      -161
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "HOT",
+        "size": 54,
+        "x": 30,
+        "y": 232,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00114.png",
+    "src": "assistant.png",
+    "crop": [
+      32,
+      12,
+      234,
+      233
+    ],
+    "canvas": [
+      414,
+      414
+    ],
+    "bg_hex": "#de5775",
+    "rotation": -86.4202411744837,
+    "scale": 0.9433141985251847,
+    "translate": [
+      -122,
+      3
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "99553",
+        "size": 80,
+        "x": 44,
+        "y": 7,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00115.png",
+    "src": "check_box.png",
+    "crop": [
+      48,
+      25,
+      207,
+      206
+    ],
+    "canvas": [
+      605,
+      587
+    ],
+    "bg_hex": "#cdc978",
+    "rotation": 155.0709790423183,
+    "scale": 2.1503236131638865,
+    "translate": [
+      -125,
+      -24
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "领券",
+        "size": 108,
+        "x": 42,
+        "y": 127,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00116.png",
+    "src": "wuyeweixiu.png",
+    "crop": [
+      36,
+      0,
+      228,
+      300
+    ],
+    "canvas": [
+      607,
+      469
+    ],
+    "bg_hex": "#b9d93f",
+    "rotation": 108.62325463736096,
+    "scale": 0.847621801149037,
+    "translate": [
+      -125,
+      89
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00117.png",
+    "src": "yiliaoyaopin.png",
+    "crop": [
+      0,
+      26,
+      300,
+      248
+    ],
+    "canvas": [
+      601,
+      528
+    ],
+    "bg_hex": "#963b40",
+    "rotation": -20.792290060760365,
+    "scale": 0.7340170843017143,
+    "translate": [
+      -80,
+      212
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "商店",
+        "size": 58,
+        "x": 130,
+        "y": 497,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "详情115",
+        "size": 69,
+        "x": 547,
+        "y": 39,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "特价563",
+        "size": 141,
+        "x": 139,
+        "y": 0,
+        "color": "#ffffff"
+      },
+      {
+        "side": "top",
+        "text": "领券392",
+        "size": 130,
+        "x": 2,
+        "y": 20,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00118.png",
+    "src": "lijinrenqing.png",
+    "crop": [
+      12,
+      0,
+      276,
+      300
+    ],
+    "canvas": [
+      617,
+      617
+    ],
+    "bg_hex": "#5b8746",
+    "rotation": -163.47069520065418,
+    "scale": 1.06938173508433,
+    "translate": [
+      64,
+      -96
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "特价925",
+        "size": 130,
+        "x": 500,
+        "y": 64,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00119.png",
+    "src": "waimai.png",
+    "crop": [
+      0,
+      23,
+      300,
+      254
+    ],
+    "canvas": [
+      374,
+      423
+    ],
+    "bg_hex": "#a1d0bd",
+    "rotation": -57.102223051559605,
+    "scale": 0.6261864870710856,
+    "translate": [
+      110,
+      24
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "新品",
+        "size": 91,
+        "x": 182,
+        "y": 29,
+        "color": "#141414"
+      },
+      {
+        "side": "left",
+        "text": "99",
+        "size": 102,
+        "x": 43,
+        "y": 233,
+        "color": "#ffffff"
+      }
+    ]
+  }
+]
