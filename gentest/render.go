@@ -7,6 +7,8 @@ import (
 )
 
 // renderSample builds one canvas ("the query image") from the trimmed sprite.
+// The scaled+rotated sprite is guaranteed to fit entirely inside the canvas
+// (never clipped), and is kept large enough that thin icon strokes survive.
 func renderSample(rng *rand.Rand, lib *fontLib, sprite *image.NRGBA, crop [4]int) (*image.NRGBA, Sample) {
 	var spec Sample
 	spec.Crop = crop
@@ -23,23 +25,56 @@ func renderSample(rng *rand.Rand, lib *fontLib, sprite *image.NRGBA, crop [4]int
 	bg := randColor(rng, 0.10, 0.90)
 	flatFill(canvas, bg)
 
-	// sprite -> canvas affine mapping
-	frac := *gl + rng.Float64()*(*gh-*gl)
-	if rng.Intn(10) == 0 { // occasionally spill over the canvas edge
-		frac = 1.0 + rng.Float64()*0.5
-	}
-	scale := frac * float64(mini(w, h)) / float64(maxi(sw, sh))
-
 	rot := 0.0
 	if rng.Float64() < 0.9 {
 		rot = rng.Float64()*360 - 180
 	}
-	ox := float64(w)/2 + (rng.Float64()-0.5)*float64(w)*0.9
-	oy := float64(h)/2 + (rng.Float64()-0.5)*float64(h)*0.9
+	rad := rot * math.Pi / 180
+	cos, sin := math.Cos(rad), math.Sin(rad)
+
+	// Rotated bounding box of the sprite at unit scale, so we can guarantee fit.
+	rotW := float64(sw)*math.Abs(cos) + float64(sh)*math.Abs(sin)
+	rotH := float64(sw)*math.Abs(sin) + float64(sh)*math.Abs(cos)
+
+	// Desired size: sprite's max side = frac * canvas min side.
+	frac := *gl + rng.Float64()*(*gh-*gl)
+	scale := frac * float64(mini(w, h)) / float64(maxi(sw, sh))
+
+	// Keep the sprite large enough that thin strokes (1-3px at source) survive
+	// bilinear rendering and the retrieval threshold: floor the rendered max
+	// side at ~45% of the canvas min side.
+	minScale := 0.45 * float64(mini(w, h)) / float64(maxi(sw, sh))
+
+	// Never let the rotated sprite poke outside the canvas (keep a 2px margin).
+	maxFit := math.Min(float64(w-2)/rotW, float64(h-2)/rotH)
+
+	// clamp: lower bound minScale, upper bound maxFit (minScale cannot exceed
+	// maxFit because sprite max side <= canvas min side).
+	if scale < minScale {
+		scale = minScale
+	}
+	if scale > maxFit {
+		scale = maxFit
+	}
+
+	// Random translation, clamped so the whole rotated sprite stays on-canvas.
+	cw, ch := rotW*scale, rotH*scale
+	mx := float64(w) - cw
+	my := float64(h) - ch
+	if mx < 0 {
+		mx = 0
+	}
+	if my < 0 {
+		my = 0
+	}
+	ox := cw/2 + mx/2 + (rng.Float64()-0.5)*mx
+	oy := ch/2 + my/2 + (rng.Float64()-0.5)*my
 
 	affinePaint(canvas, sprite, scale, rot, ox, oy)
 
-	spec.Texts = drawEdgeText(rng, lib, canvas, *allSd)
+	// screen-space bbox of the drawn sprite, used to keep edge text clear of it
+	spriteRect := spriteScreenRect(sw, sh, scale, rot, ox, oy)
+	spec.Texts = drawEdgeText(rng, lib, canvas, *allSd, spriteRect)
 
 	spec.Canvas = [2]int{w, h}
 	spec.BGHex = hexColor(bg)
@@ -47,6 +82,33 @@ func renderSample(rng *rand.Rand, lib *fontLib, sprite *image.NRGBA, crop [4]int
 	spec.Scale = scale
 	spec.Translate = [2]int{int(ox - float64(w)/2), int(oy - float64(h)/2)}
 	return canvas, spec
+}
+
+// spriteScreenRect returns the axis-aligned bounding box on the canvas that the
+// scaled+rotated sprite occupies (in [x0,y0,x1,y1]).
+func spriteScreenRect(sw, sh int, scale, deg, ox, oy float64) [4]float64 {
+	rad := deg * math.Pi / 180
+	cs, sn := math.Cos(rad), math.Sin(rad)
+	x0, y0 := 1e18, 1e18
+	x1, y1 := -1e18, -1e18
+	for _, c := range [][2]float64{{-1, -1}, {1, -1}, {-1, 1}, {1, 1}} {
+		cx, cy := c[0]*float64(sw)/2, c[1]*float64(sh)/2
+		sx := ox + (cx*cs+cy*sn)*scale
+		sy := oy + (-cx*sn+cy*cs)*scale
+		if sx < x0 {
+			x0 = sx
+		}
+		if sx > x1 {
+			x1 = sx
+		}
+		if sy < y0 {
+			y0 = sy
+		}
+		if sy > y1 {
+			y1 = sy
+		}
+	}
+	return [4]float64{x0, y0, x1, y1}
 }
 
 // affinePaint paints sprite over dst: the sprite is scaled by s, rotated by

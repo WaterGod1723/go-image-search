@@ -52,8 +52,8 @@ func main() {
 	var byCol = make([]stat, len(stats))
 	copy(byCol, stats)
 	for i := 0; i < len(byCol); i++ {
-		fmt.Printf("%-48s %4dx%-4d colors=%-3d opaque=%-6d transparent=%-6d type=%-8s\n",
-			byCol[i].name, byCol[i].w, byCol[i].h, byCol[i].colors, byCol[i].opaque, byCol[i].transp, byCol[i].typeTag)
+		fmt.Printf("%-48s %4dx%-4d colors=%-3d opaque=%-6d transparent=%-6d type=%-8s top=[%v]\n",
+			byCol[i].name, byCol[i].w, byCol[i].h, byCol[i].colors, byCol[i].opaque, byCol[i].transp, byCol[i].typeTag, byCol[i].top)
 	}
 
 	nSingle := 0

@@ -28,8 +28,10 @@ var fontWords = []string{
 
 // drawEdgeText adds a random number of short texts near the border of the
 // canvas. Text height never exceeds 0.3 * canvas height. Top/bottom texts are
-// horizontal; left/right texts are rotated 90 degrees.
-func drawEdgeText(rng *rand.Rand, lib *fontLib, canvas *image.NRGBA, all bool) []TextOut {
+// horizontal; left/right texts are rotated 90 degrees. sprite is the screen
+// bbox [x0,y0,x1,y1] of the drawn icon: a side is skipped when its text would
+// overlap the icon (thin gray glyphs must stay fully readable).
+func drawEdgeText(rng *rand.Rand, lib *fontLib, canvas *image.NRGBA, all bool, sprite [4]float64) []TextOut {
 	w, h := canvas.Bounds().Dx(), canvas.Bounds().Dy()
 	var out []TextOut
 
@@ -63,18 +65,32 @@ func drawEdgeText(rng *rand.Rand, lib *fontLib, canvas *image.NRGBA, all bool) [
 		spec.Color = hexColorFmt(tc)
 		switch side {
 		case "top":
+			// vertical band occupied by the text: [0, size]. Skip if the icon
+			// intrudes into it.
+			if sprite[1] < float64(size) {
+				continue
+			}
 			spec.X = rng.Intn(maxi(1, w-adv))
 			spec.Y = rng.Intn(maxi(1, size/3))
 			textDrawH(canvas, f, tc, word, spec.X, spec.Y+size)
 		case "bottom":
+			if sprite[3] > float64(h)-float64(size) {
+				continue
+			}
 			spec.X = rng.Intn(maxi(1, w-adv))
 			spec.Y = h - size + rng.Intn(maxi(1, size/2))
 			textDrawH(canvas, f, tc, word, spec.X, spec.Y+size)
 		case "left":
+			if sprite[0] < float64(size) {
+				continue
+			}
 			spec.Y = rng.Intn(maxi(1, h-adv))
 			spec.X = rng.Intn(maxi(1, size))
 			textDrawV(canvas, f, tc, word, spec.X, spec.Y, false)
 		case "right":
+			if sprite[2] > float64(w)-float64(size) {
+				continue
+			}
 			spec.Y = rng.Intn(maxi(1, h-adv))
 			spec.X = w - size + rng.Intn(maxi(1, size))
 			textDrawV(canvas, f, tc, word, spec.X, spec.Y, true)

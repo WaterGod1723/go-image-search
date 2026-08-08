@@ -1,0 +1,41 @@
+# Binaries / executables
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go build output
+/bin/
+/dist/
+
+# Test / coverage output
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Go workspace
+go.work
+go.work.sum
+
+# Vendor (uncomment if you don't commit vendor)
+# /vendor/
+
+# Project cache / generated output
+.searchcache/
+dump/
+segdump/
+
+# Generated test fixtures (uncomment to ignore)
+# test_set/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

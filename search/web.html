@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>图像反向检索 · 可视化</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel2: #1e222c;
+    --border: #2a2f3a;
+    --text: #e6e8ee;
+    --muted: #8b93a7;
+    --accent: #4f9cff;
+    --accent2: #22c55e;
+    --warn: #f59e0b;
+    --danger: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  header {
+    padding: 14px 22px;
+    background: linear-gradient(180deg, #1a1d26, #131620);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .tabs { display: flex; gap: 4px; margin-left: auto; }
+  .tab {
+    padding: 7px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    color: var(--muted);
+    border: 1px solid transparent;
+    font-size: 13px;
+    background: transparent;
+    font-family: inherit;
+  }
+  .tab.active { background: var(--panel2); color: var(--text); border-color: var(--border); }
+  .tab:hover { color: var(--text); }
+  main { padding: 20px; max-width: 1300px; margin: 0 auto; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin-bottom: 16px;
+  }
+  .card h2 { margin: 0 0 12px; font-size: 15px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .stat {
+    display: flex;
+    flex-direction: column;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 14px;
+    min-width: 120px;
+  }
+  .stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .stat .v { font-size: 16px; font-weight: 600; }
+  button, .btn {
+    background: var(--accent);
+    color: #fff;
+    border: 0;
+    border-radius: 8px;
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.ghost { background: var(--panel2); border: 1px solid var(--border); color: var(--text); }
+  button.ghost:hover { background: #272c38; }
+  input[type=text] {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 13px;
+    width: 220px;
+  }
+  .thumb-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .thumb {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px;
+    text-align: center;
+  }
+  .thumb img { width: 100%; height: 84px; object-fit: contain; image-rendering: pixelated; }
+  .thumb .name { font-size: 10px; color: var(--muted); margin-top: 4px; word-break: break-all; }
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 26px;
+    text-align: center;
+    color: var(--muted);
+    cursor: pointer;
+    transition: .15s;
+  }
+  .dropzone.drag { border-color: var(--accent); color: var(--text); background: #1a2030; }
+  .dropzone .big { font-size: 14px; }
+  .dropzone input { display: none; }
+  .preview-row { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 14px; }
+  .preview { text-align: center; }
+  .preview .lbl { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .preview img {
+    max-width: 240px;
+    max-height: 200px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    image-rendering: pixelated;
+    background:
+      linear-gradient(45deg, #2a2f3a 25%, transparent 25%),
+      linear-gradient(-45deg, #2a2f3a 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #2a2f3a 75%),
+      linear-gradient(-45deg, transparent 75%, #2a2f3a 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  }
+  .results { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-top: 12px; }
+  .result {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px;
+  }
+  .result.top { border-color: var(--accent2); box-shadow: 0 0 0 1px var(--accent2); }
+  .result img { width: 100%; height: 110px; object-fit: contain; image-rendering: pixelated; }
+  .result .rname { font-size: 12px; margin: 6px 0 2px; word-break: break-all; }
+  .result .rank { font-size: 11px; color: var(--muted); }
+  .bars { margin-top: 6px; display: flex; flex-direction: column; gap: 2px; }
+  .bar-row { display: flex; align-items: center; gap: 6px; font-size: 10px; }
+  .bar-row .lab { width: 64px; color: var(--muted); }
+  .bar-row .bar { flex: 1; height: 6px; background: #2a2f3a; border-radius: 3px; overflow: hidden; }
+  .bar-row .bar > i { display: block; height: 100%; background: var(--accent); }
+  .bar-row .val { width: 32px; text-align: right; color: var(--muted); }
+  .badge {
+    display: inline-block;
+    font-size: 10px;
+    padding: 2px 7px;
+    border-radius: 10px;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .badge.ok { color: var(--accent2); border-color: var(--accent2); }
+  .badge.warn { color: var(--warn); border-color: var(--warn); }
+  .note { color: var(--warn); font-size: 13px; }
+  .hidden { display: none; }
+  .sample-strip { max-height: 220px; overflow-y: auto; }
+  .loading { color: var(--accent); font-size: 13px; }
+  .footer { color: var(--muted); font-size: 12px; text-align: center; padding: 18px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>图像反向检索</h1>
+  <span class="sub">基于特征匹配 + 旋转对齐 + 形状上下文</span>
+  <div class="tabs">
+    <button type="button" class="tab active" data-tab="search">图像查找</button>
+    <button type="button" class="tab" data-tab="index">索引管理</button>
+  </div>
+</header>
+
+<main>
+  <!-- INDEX TAB -->
+  <section id="tab-index" class="hidden">
+    <div class="card">
+      <h2>索引状态</h2>
+      <div class="row">
+        <div class="stat"><span class="k">底库目录</span><span class="v" id="stat-dir">—</span></div>
+        <div class="stat"><span class="k">索引图片数</span><span class="v" id="stat-count">—</span></div>
+        <div class="stat"><span class="k">上次构建</span><span class="v" id="stat-built">—</span></div>
+        <div class="stat"><span class="k">磁盘缓存</span><span class="v" id="stat-cache">—</span></div>
+        <div class="stat"><span class="k">查询缓存数</span><span class="v" id="stat-qcache">—</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>构建索引（带增量缓存）</h2>
+      <div class="row">
+        <input type="text" id="build-dir" placeholder="底库目录（相对 root）" value="test_pngs">
+        <button id="btn-build">构建 / 刷新</button>
+        <button id="btn-clearq" class="ghost">清空查询缓存</button>
+        <span id="build-msg" class="loading"></span>
+      </div>
+      <p class="note" style="font-size:12px;margin:10px 0 0">
+        索引会持久化到 <code>.searchcache/index.gob</code>；只有新增/修改过的图才会重新计算特征。
+      </p>
+    </div>
+    <div class="card">
+      <h2>已索引图片 <span id="ref-count" class="badge"></span></h2>
+      <div id="ref-grid" class="thumb-grid"></div>
+    </div>
+  </section>
+
+  <!-- SEARCH TAB -->
+  <section id="tab-search">
+    <div class="card">
+      <h2>查询图像</h2>
+      <div class="row">
+        <label class="dropzone" id="dz">
+          <div class="big">点击或拖入 PNG 图像</div>
+          <div style="font-size:11px">支持透明图标 / 带背景干扰的画布</div>
+          <input type="file" id="file" accept="image/png">
+        </label>
+        <div style="flex:1; min-width:260px">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:6px">或从测试集 test_set/ 选取：</div>
+          <div id="sample-strip" class="sample-strip thumb-grid"></div>
+        </div>
+      </div>
+      <div class="preview-row">
+        <div class="preview">
+          <div class="lbl">原始查询</div>
+          <img id="q-orig" class="hidden">
+        </div>
+        <div class="preview">
+          <div class="lbl">分割提取的 sprite（绿）</div>
+          <img id="q-sprite" class="hidden">
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button id="btn-search" disabled>开始检索</button>
+        <span id="search-msg" class="loading"></span>
+        <span id="search-cached" class="badge hidden"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>检索结果 <span id="result-meta" class="badge"></span></h2>
+      <div id="results" class="results"></div>
+      <div id="result-note" class="note hidden"></div>
+    </div>
+  </section>
+</main>
+
+<div class="footer">image-search-test · web UI · 缓存：索引磁盘 + 查询内存 LRU</div>
+
+<script>
+const FEATURE_NAMES = ["颜色直方图","径向分布","角度FFT","极坐标形状","极坐标颜色","几何","Zernike"];
+let currentQueryBytes = null;
+let currentQueryURL = null;
+
+const $ = (id) => document.getElementById(id);
+
+// ---------- tab switching ----------
+document.querySelectorAll(".tab").forEach(t => {
+  t.onclick = () => {
+    document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+    t.classList.add("active");
+    document.querySelectorAll("main > section").forEach(s => s.classList.add("hidden"));
+    $("tab-" + t.dataset.tab).classList.remove("hidden");
+    if (t.dataset.tab === "index") refreshIndex();
+  };
+});
+
+// ---------- status / index ----------
+async function refreshIndex() {
+  try {
+    const r = await fetch("/api/status");
+    const d = await r.json();
+    $("stat-dir").textContent = d.refDir || "—";
+    $("stat-count").textContent = d.count;
+    $("stat-built").textContent = d.lastBuilt ? new Date(d.lastBuilt).toLocaleTimeString() : "—";
+    $("stat-cache").textContent = d.cacheFile ? "已保存" : "无";
+    $("stat-qcache").textContent = d.queryCacheSize;
+    $("ref-count").textContent = (d.names || []).length + " 张";
+    renderRefGrid(d.names || []);
+  } catch (e) { console.error(e); }
+}
+
+function renderRefGrid(names) {
+  const g = $("ref-grid");
+  g.innerHTML = "";
+  if (!names.length) {
+    g.innerHTML = '<div class="note">索引为空，点击上方“构建”按钮。</div>';
+    return;
+  }
+  names.forEach(n => {
+    const d = document.createElement("div");
+    d.className = "thumb";
+    d.innerHTML = `<img src="/api/ref?name=${encodeURIComponent(n)}" title="${n}"><div class="name">${n}</div>`;
+    g.appendChild(d);
+  });
+}
+
+$("btn-build").onclick = async () => {
+  const dir = $("build-dir").value.trim() || "test_pngs";
+  $("build-msg").textContent = "构建中…";
+  $("btn-build").disabled = true;
+  try {
+    const r = await fetch("/api/build?dir=" + encodeURIComponent(dir), { method: "POST" });
+    const d = await r.json();
+    if (d.error) { $("build-msg").innerHTML = `<span style="color:var(--danger)">错误：${d.error}</span>`; }
+    else {
+      $("build-msg").innerHTML = `完成：共 ${d.count} 张，重算 ${d.rebuilt}，缓存命中 ${d.cached}，用时 ${d.elapsedMs} ms`;
+    }
+    await refreshIndex();
+  } catch (e) { $("build-msg").textContent = "失败：" + e; }
+  $("btn-build").disabled = false;
+};
+
+$("btn-clearq").onclick = async () => {
+  await fetch("/api/clearcache", { method: "POST" });
+  await refreshIndex();
+};
+
+// ---------- samples ----------
+async function loadSamples() {
+  try {
+    const r = await fetch("/api/samples");
+    const d = await r.json();
+    const strip = $("sample-strip");
+    strip.innerHTML = "";
+    (d.samples || []).slice(0, 60).forEach(s => {
+      const el = document.createElement("div");
+      el.className = "thumb";
+      el.style.cursor = "pointer";
+      el.innerHTML = `<img src="/api/sample?name=${encodeURIComponent(s)}"><div class="name">${s}</div>`;
+      el.onclick = () => pickSample(s);
+      strip.appendChild(el);
+    });
+  } catch (e) { console.error(e); }
+}
+
+async function pickSample(name) {
+  const r = await fetch("/api/sample?name=" + encodeURIComponent(name));
+  const blob = await r.blob();
+  setQuery(blob, name);
+}
+
+// ---------- upload ----------
+const dz = $("dz");
+const fileInput = $("file");
+fileInput.onchange = () => { if (fileInput.files[0]) setQuery(fileInput.files[0], fileInput.files[0].name); };
+dz.ondragover = (e) => { e.preventDefault(); dz.classList.add("drag"); };
+dz.ondragleave = () => dz.classList.remove("drag");
+dz.ondrop = (e) => {
+  e.preventDefault();
+  dz.classList.remove("drag");
+  if (e.dataTransfer.files[0]) setQuery(e.dataTransfer.files[0], e.dataTransfer.files[0].name);
+};
+
+function setQuery(blob, name) {
+  if (currentQueryURL) URL.revokeObjectURL(currentQueryURL);
+  currentQueryURL = URL.createObjectURL(blob);
+  $("q-orig").src = currentQueryURL;
+  $("q-orig").classList.remove("hidden");
+  $("q-sprite").classList.add("hidden");
+  $("btn-search").disabled = false;
+  blob.arrayBuffer().then(ab => { currentQueryBytes = new Uint8Array(ab); });
+  $("search-msg").textContent = "已加载：" + name;
+}
+
+// ---------- search ----------
+$("btn-search").onclick = async () => {
+  if (!currentQueryBytes) return;
+  $("btn-search").disabled = true;
+  $("search-msg").textContent = "检索中…";
+  $("search-cached").classList.add("hidden");
+  $("results").innerHTML = "";
+  $("result-note").classList.add("hidden");
+
+  const fd = new FormData();
+  fd.append("image", new Blob([currentQueryBytes]), "query.png");
+  try {
+    const r = await fetch("/api/search", { method: "POST", body: fd });
+    const d = await r.json();
+    renderResults(d);
+  } catch (e) {
+    $("search-msg").textContent = "失败：" + e;
+  }
+  $("btn-search").disabled = false;
+};
+
+function renderResults(d) {
+  $("search-msg").textContent = "";
+  if (d.spritePng) {
+    $("q-sprite").src = "data:image/png;base64," + d.spritePng;
+    $("q-sprite").classList.remove("hidden");
+  }
+  if (d.note) {
+    $("result-note").textContent = d.note;
+    $("result-note").classList.remove("hidden");
+  }
+  if (d.cached) {
+    $("search-cached").textContent = "命中查询缓存";
+    $("search-cached").classList.remove("hidden");
+    $("search-cached").classList.add("ok");
+  }
+  $("result-meta").textContent = `${d.results.length} 条 · ${d.elapsedMs} ms · ${d.queryW}×${d.queryH}`;
+
+  const grid = $("results");
+  grid.innerHTML = "";
+  d.results.forEach((res, i) => {
+    const card = document.createElement("div");
+    card.className = "result" + (i === 0 ? " top" : "");
+    const bars = res.scores.map((s, idx) => {
+      const pct = Math.max(0, Math.min(1, s)) * 100;
+      return `<div class="bar-row"><span class="lab">${FEATURE_NAMES[idx]}</span>` +
+             `<span class="bar"><i style="width:${pct}%"></i></span>` +
+             `<span class="val">${s.toFixed(2)}</span></div>`;
+    }).join("");
+    card.innerHTML =
+      `<img src="/api/ref?name=${encodeURIComponent(res.name)}" title="${res.name}">` +
+      `<div class="rname">${res.name}</div>` +
+      `<div class="rank">#${res.rank} · mask dice = <b>${res.maskScore.toFixed(3)}</b></div>` +
+      `<div class="bars">${bars}</div>`;
+    grid.appendChild(card);
+  });
+}
+
+// init
+loadSamples();
+refreshIndex();
+</script>
+</body>
+</html>
