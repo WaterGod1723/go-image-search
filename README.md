@@ -1,8 +1,8 @@
 # go-image-search
 
-> Reverse image search powered by a trained neural ranking engine — Go tool with CLI + desktop GUI (Wails) to find similar, cropped, thumbnail or duplicate icons across a large local library. No external services.
+> Reverse image search using a trained neural ranking engine (MLP fusing hand-crafted features + color-agnostic SCZL signatures with two-stage coarse pre-filter) — Go tool with CLI + desktop GUI (Wails) to find similar, cropped, thumbnail or duplicate images across a large local library. No external services.
 >
-> 基于神经网络排序引擎的图片反向搜索，纯 Go 实现。底层引擎（`internal/nnengine`）复用 `image-search-test` 项目：用训练好的 MLP 融合手工特征与 sczl 颜色无关专家签名，配合两阶段粗筛，对旋转/缩放/背景色变化/四周文字的 icon 检索鲁棒。内置命令行与 Wails 桌面界面，无需外部服务。
+> 完全本地化的图片反向搜索工具。指定一个图像目录即可构建可检索索引，随后用任意图片查询，找出视觉相似、旋转/缩放、裁剪、缩略图或重复的图片。排序引擎（`internal/nnengine`，复用 `image-search-test` 项目）是训练好的 learning-to-rank MLP：融合旋转不变手工特征（HSV 直方图、极坐标形状、角向 FFT、Zernike 矩、掩膜 Dice）与 sczl 颜色无关专家签名（占据栅格 + Fourier + 径向直方图 + 区域匹配），配合两阶段粗筛使检索成本随库规模近似亚线性（1 万张约 0.35s/查询）。提供命令行、本地 Web 界面与 Wails 桌面界面；索引、权重均为本地文件，无需任何外部服务。
 
 Topics: `image-search` `neural-network` `reverse-image-search` `image-retrieval` `machine-learning` `go` `golang` `computer-vision`
 
