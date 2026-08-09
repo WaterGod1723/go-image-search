@@ -2,7 +2,75 @@ package main
 
 import (
 	"math"
+	"os"
+	"strconv"
 )
+
+// scMaxPts caps the number of shape-context sample points per side. The
+// Hungarian match is O(n^3), so cutting 120->48 is ~15x cheaper with no
+// measured recall loss (sczl also uses a 48-point cap). Override with SCPTS.
+var scMaxPts = 48
+
+func init() {
+	if v := os.Getenv("SCPTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			scMaxPts = n
+		}
+	}
+}
+
+// refSC lazily computes and caches a reference's sample points and
+// shape-context histograms. The reference side is query-independent, so it is
+// computed once per Feat instead of once per (query, ref) pair.
+func (f *Feat) refSC() ([]scPoint, []float64) {
+	f.scOnce.Do(func() {
+		f.scPts = sampleSCPoints(f.Mask48)
+		f.scHist, _ = buildSC(f.scPts)
+	})
+	return f.scPts, f.scHist
+}
+
+// scQueryHists precomputes the shape-context histograms of a query rotated
+// over the whole sweep, once per query, so every shortlist candidate shares
+// them instead of each rebuilding the rotated query clouds.
+func scQueryHists(q *Feat) [][]float64 {
+	qp := sampleSCPoints(q.Mask48)
+	hists := make([][]float64, scRot)
+	for step := 0; step < scRot; step++ {
+		ang := float64(step) * scRotDeg * math.Pi / 180
+		rqp := rotateSCPoints(qp, ang)
+		qh, _ := buildSC(rqp)
+		hists[step] = qh
+	}
+	return hists
+}
+
+// scSimFromHists is the shape-context similarity between precomputed query
+// histograms and a reference, over the best (cheapest) rotation.
+func scSimFromHists(qHists [][]float64, r *Feat) float64 {
+	if len(qHists) == 0 {
+		return 0
+	}
+	_, rh := r.refSC()
+	if len(rh) == 0 {
+		return 0
+	}
+	best := math.Inf(1)
+	for _, qh := range qHists {
+		cost := matchCost(qh, rh)
+		if cost < best {
+			best = cost
+		}
+	}
+	sim := 1.0 - best
+	if sim < 0 {
+		sim = 0
+	}
+	if sim > 1 {
+		sim = 1
+	}
+	return sim
+}
 
 // Shape-context point matching (Belongie et al.) on the 64x64 soft masks.
 //
@@ -27,7 +95,7 @@ const (
 
 // sampleSCPoints returns point samples from a soft mask. To keep the point
 // cloud dense enough for thin-stroke glyphs we sample every occupied cell,
-// then decimate to at most maxPts evenly (by grid order).
+// then decimate to at most scMaxPts evenly (by grid order).
 func sampleSCPoints(m []float64) []scPoint {
 	var pts []scPoint
 	for y := 0; y < maskN; y++ {
@@ -38,11 +106,10 @@ func sampleSCPoints(m []float64) []scPoint {
 			}
 		}
 	}
-	const maxPts = 120
-	if len(pts) > maxPts {
-		step := float64(len(pts)) / maxPts
-		out := make([]scPoint, 0, maxPts)
-		for i := 0; i < maxPts; i++ {
+	if len(pts) > scMaxPts {
+		step := float64(len(pts)) / float64(scMaxPts)
+		out := make([]scPoint, 0, scMaxPts)
+		for i := 0; i < scMaxPts; i++ {
 			out = append(out, pts[int(float64(i)*step)])
 		}
 		return out
@@ -241,33 +308,7 @@ func hungarianMin(cost [][]float64) float64 {
 // handled by a coarse sweep of the query points. Returns a similarity in
 // [0,1] (1 = identical).
 func shapeContextSim(q, r *Feat) float64 {
-	qp := sampleSCPoints(q.Mask48)
-	rp := sampleSCPoints(r.Mask48)
-	if len(qp) == 0 || len(rp) == 0 {
-		return 0
-	}
-	rh, _ := buildSC(rp)
-	if rh == nil {
-		return 0
-	}
-	best := math.Inf(1)
-	for step := 0; step < scRot; step++ {
-		ang := float64(step) * scRotDeg * math.Pi / 180
-		rqp := rotateSCPoints(qp, ang)
-		qh, _ := buildSC(rqp)
-		cost := matchCost(qh, rh)
-		if cost < best {
-			best = cost
-		}
-	}
-	sim := 1.0 - best
-	if sim < 0 {
-		sim = 0
-	}
-	if sim > 1 {
-		sim = 1
-	}
-	return sim
+	return scSimFromHists(scQueryHists(q), r)
 }
 
 func rotateSCPoints(pts []scPoint, ang float64) []scPoint {

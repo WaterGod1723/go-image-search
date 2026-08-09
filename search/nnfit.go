@@ -282,9 +282,12 @@ func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descripto
 			scBlend = f
 		}
 	}
-	for i := 0; i < scTop && i < len(out); i++ {
-		idx := out[i]
-		score[idx] = (1-scBlend)*score[idx] + scBlend*shapeContextSim(q, refs[idx])
+	if scBlend > 0 && scTop > 0 {
+		qHists := scQueryHists(q)
+		for i := 0; i < scTop && i < len(out); i++ {
+			idx := out[i]
+			score[idx] = (1-scBlend)*score[idx] + scBlend*scSimFromHists(qHists, refs[idx])
+		}
 	}
 	insertionSort(out, func(a, b int) bool {
 		if pairs[a][0] != pairs[b][0] {

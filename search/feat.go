@@ -4,6 +4,7 @@ import (
 	"math"
 	"math/cmplx"
 	"sort"
+	"sync"
 )
 
 const (
@@ -90,6 +91,12 @@ type Feat struct {
 	RMS        float64   // root-mean-square radius of sprite pixels
 	MinX, MinY int
 	MaxX, MaxY int
+
+	// lazy, query-independent shape-context data for references (see refSC);
+	// unexported so gob skips them when the server index is cached.
+	scOnce sync.Once
+	scPts  []scPoint
+	scHist []float64
 }
 
 func hsv(r, g, b uint8) (h, s, v float64) {

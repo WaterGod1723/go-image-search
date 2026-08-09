@@ -26,11 +26,14 @@ var webHTML []byte
 
 const queryCacheCap = 256
 
-// indexEntry is one cached reference: name + mtime + computed feature.
+// indexEntry is one cached reference: name + mtime + computed features (both
+// the hand-crafted Feat and the color-agnostic sczl descriptor, persisted so
+// the neural ranker's second expert needs no PNG re-decode on startup).
 type indexEntry struct {
 	Name    string
 	ModTime time.Time
 	Feat    *Feat
+	SCZL    sczl.Descriptor
 }
 
 // indexCacheFile is the on-disk gob payload for the index cache.
@@ -108,6 +111,15 @@ func newServer(root string) *server {
 		log.Printf("index cache loaded: %d entries from %s", len(s.entries), s.cachePath)
 	}
 	s.loadNN()
+	// Auto-build the default reference index on first run so the server is
+	// immediately usable; subsequent starts reuse the local cache (fast).
+	if len(s.entries) == 0 {
+		if resp := s.buildIndex(s.refDir); resp.Error != "" {
+			log.Printf("auto-build failed: %s", resp.Error)
+		} else {
+			log.Printf("auto-built index: %d refs from %s", resp.Count, s.refDir)
+		}
+	}
 	return s
 }
 
@@ -235,7 +247,7 @@ func (s *server) buildIndex(dir string) buildResponse {
 			continue
 		}
 		f := buildFeat(px)
-		entries = append(entries, indexEntry{Name: fn, ModTime: fi.ModTime(), Feat: f})
+		entries = append(entries, indexEntry{Name: fn, ModTime: fi.ModTime(), Feat: f, SCZL: sczl.Extract(img)})
 		rebuilt++
 	}
 
@@ -278,21 +290,30 @@ func (s *server) loadCache() error {
 
 // rebuildSCZL (re)builds the sczl reference descriptors aligned 1:1 with
 // s.entries (same order), as the second expert the neural ranker consumes.
+// Persisted descriptors are reused; only missing ones (older cache format) are
+// re-extracted and written back so the next save persists them.
 // Must be called with s.mu held (write lock).
 func (s *server) rebuildSCZL() {
 	ix := sczl.New()
-	for _, e := range s.entries {
-		img, err := loadPNG(filepath.Join(s.refDir, e.Name))
-		if err != nil {
-			ix.AddImage(e.Name, sczl.Descriptor{})
-			continue
+	extracted := false
+	for i := range s.entries {
+		e := &s.entries[i]
+		d := e.SCZL
+		if !d.Valid {
+			if img, err := loadPNG(filepath.Join(s.refDir, e.Name)); err == nil {
+				d = sczl.Extract(img)
+				e.SCZL = d
+				extracted = true
+			}
 		}
 		// Keep 1:1 alignment with entries even if extraction fails (zero
 		// descriptor simply contributes a low similarity).
-		d := sczl.Extract(img)
 		ix.AddImage(e.Name, d)
 	}
 	s.sczlIx = ix
+	if extracted && s.cache != nil {
+		_ = s.saveCache(s.cache)
+	}
 }
 
 func (s *server) saveCache(c *indexCacheFile) error {

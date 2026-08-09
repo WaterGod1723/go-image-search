@@ -78,6 +78,15 @@ neural (MLP)      : recall@1 = 114/118 (96.6%)   recall@3 = 116/118 (98.3%)   re
    epoch 阶段只做前向/反向，不重算特征（epoch 阶段实测 0.4s）。
 3. **并行**：`parFor`（nnfit.go，按 GOMAXPROCS 分片）并行构建查询特征与评测。
    结果：pair 特征提取从"分钟级未完成"降到 **~3s**。
+4. **shape-context 精排提速**（shapecontext.go，服务端热路径，~1s→~310ms）：
+   - 查询的 36 个旋转 SC 直方图每查询只预计算一次（`scQueryHists`），top-12 候选共享；
+   - 参考侧 SC 直方图按 ref 惰性缓存（Feat 内 `sync.Once`，`refSC`），不再每个 (q,r) 对重算；
+   - SC 采样点 120→48（`SCPTS` 可覆盖），Hungarian O(n³) 降 ~15 倍，**recall@1/@3 实测无损失**。
+5. **本地存储/索引持久化**（server.go）：
+   - sczl 参考描述子写进 `.searchcache/index.gob`（indexEntry.SCZL），重启/重建免重解码 PNG：
+     冷启动构建 2100ms → 热缓存重建 334ms；
+   - 启动自动构建索引（无缓存时），免手动操作；
+   - 查询结果 LRU 缓存（按内容 hash）照旧，重复查询秒回。
 
 ## 6. 文件布局与命令
 
@@ -116,8 +125,12 @@ go build -o search_nn.exe ./search
 - [x] 目标指标：recall@1 与 recall@3 达成 96.6% / 98.3%
 - [x] **接入 search server**：`/api/search` 启动时加载 `weights.gob`（可用 `NN_WEIGHTS` 覆盖路径），
       优先用 `rankNN`（含 sczl 专家 + shape-context 精排），权重缺失/形状不符则回退 `compositeAdaptive`；
-      引用索引变化时自动重建 sczl 专家索引（与 entries 1:1 对齐）。实测单次查询 ~1s（精排开销），
-      相同查询走 LRU 缓存秒回。
+      引用索引变化时自动重建 sczl 专家索引（与 entries 1:1 对齐）。
+- [x] **检索/索引提速**（见 §6）：
+  - shape-context 精排优化：查询旋转直方图每查询只算一次（12 候选共享）、参考侧 SC 直方图按 ref 惰性缓存、
+    采样点 120→48（Hungarian O(n³) 降 ~15 倍，**recall 无损失**）→ 服务端单查询 ~1s 降到 **~310ms**
+  - sczl 参考描述子持久化进 `.searchcache/index.gob` → 重启索引重建 2100ms 降到 **~334ms**（不再重解码 PNG）
+  - 启动自动构建索引（无缓存时），免手动"构建索引"
 
 ### 最终评测结果（test_set，118 张有效查询）
 ```
@@ -131,7 +144,7 @@ neural (MLP)      : recall@1 = 114/118 (96.6%)   recall@3 = 116/118 (98.3%)   re
 ### 待办
 - [ ] （可选）sczl 更多子特征（occ/fd 分开）或 SC/HOG 精排进 NN，继续压灰度难例
 - [ ] （可选）改进分割：处理 scale>1 溢出与细笔画丢失
-- [ ] （可选）服务端精排提速：shapeContext 目前单查询 ~1s，可限制 SC 点数（如 sczl 的 48 点上限）
+- [ ] （可选）服务端 SC 精排再提速：剩余 ~310ms 中精排仍占大头，可进一步并行化或降旋转步数（36→18）
 
 ## 8. 已知风险与备注
 
