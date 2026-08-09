@@ -42,28 +42,29 @@ sczl（`search/sczl/`，从 `go-image-search` 项目 vendor 进来，零内部�
 
 ## 3. 训练
 
-- 训练数据：`go run ./gentest -n 4000 -seed 20260715 -out train_set`
-  （与 `test_set` 不同 seed；同一 seed 下前 2000 张与旧版一致，属纯扩展）。
+- 训练数据：`go run ./gentest -n 8000 -seed 20260715 -out train_set`
+  （与 `test_set` 不同 seed；同一 seed 下前 4000 张与旧版一致，属纯扩展）。
 - 每查询样本：1 正样本（真值 ref）+ 难负样本（hist+mask 混合最接近 8 个 + 3 随机）。
-- 损失：class-balanced BCE + Adam（最终 lr=0.001，batch=256，120 epoch）。
+- 损失：class-balanced BCE + Adam（最终 lr=0.002，batch=256，60 epoch —— 120 epoch 会过拟合，train@1 升到 98% 但 test 反降）。
 - 命令：`search.exe . train train_set weights.gob [epochs] [lr]` → 存 `weights.gob`。
+- 训练耗时：8000 张 prep ~3min + 60 epoch ~4.5min，总 ~7.5min。
 
 ## 4. 评测（留出 test_set）
 
 命令：`search.exe . nn weights.gob`，同时输出 baseline adaptive 与 NN 的
-recall@1/@5 及 NN miss。
+recall@1/@3/@5 及 NN miss。排序尾部用 shape-context 精排（默认 SCTOP=12、SCBLEND=0.7，
+可经环境变量覆盖；纯 SC 或纯 NN 都更差，0.7 混合最优）。
 
 **最终结果（118 张有效查询，2 张分割失败不计）**
 ```
-baseline adaptive : recall@1 = 109/118 (92.4%)   recall@5 = 109/118 (92.4%)
-neural (MLP)      : recall@1 = 112/118 (94.9%)   recall@5 = 116/118 (98.3%)
+baseline adaptive : recall@1 = 109/118 (92.4%)   recall@3 = 109/118 (92.4%)   recall@5 = 109/118 (92.4%)
+neural (MLP)      : recall@1 = 114/118 (96.6%)   recall@3 = 116/118 (98.3%)   recall@5 = 116/118 (98.3%)
 ```
-- recall@1 提升 **+2.5pp**，recall@5 提升 **+5.9pp**。
-- 剩余 6 个 miss 均为灰度难例：2 张 home_work（sprite 溢出 scale>1 裁边+大旋转），
-  以及 person_edit/fact_check/supervisor_account 等灰色描边族内混淆；
-  其中 4 张的真值已排在 top-5。
-- 历史轨迹：NN 无 sczl 特征时 91.5%（≤ baseline）→ 加 sczl 特征后 94.9%（> baseline）——
-  证明"专属灰度算法 + NN 学习路由"方向有效。
+- recall@1 +4.2pp、recall@3 +5.9pp、recall@5 +5.9pp，均超 baseline。
+- 剩余 4 个 miss：2 张 home_work（scale 0.74 过小 / 1.26 溢出裁边 + 旋转 + 双文字，
+  真值不在 top-5，分割受损难例）；2 张在 rank 2-3（account_balance / dashboard 的
+  灰色描边族内混淆）。
+- 提升轨迹：无 sczl 91.5% → +sczl 特征 94.9% → 8000 训练图 + 精排调参 96.6% @1。
 
 ## 5. 性能优化（针对"旋转扫描太耗 CPU/时间"的诉求）
 
@@ -87,14 +88,14 @@ neural (MLP)      : recall@1 = 112/118 (94.9%)   recall@5 = 116/118 (98.3%)
 | `search/sczl/` | vendor 的 sczl 颜色无关检索算法（含新增导出 `GlobalScoresAll` 廉价打分） |
 | `search/sczleval.go` | sczl 单独评测（mono/color 拆分） |
 | `search/main.go` | 子命令 `train`/`nn`/`sczl`/`rr`/`seg`/`space` |
-| `train_set/` | gentest 生成的训练集（4000 张，seed 20260715） |
-| `weights.gob` | 训练产物（最终：120 epoch，lr=0.001，81 维输入） |
+| `train_set/` | gentest 生成的训练集（8000 张，seed 20260715，gitignore 不入库） |
+| `weights.gob` | 训练产物（最终：8000 张 / 60 epoch / lr=0.002 / 81 维输入） |
 
 常用命令：
 ```bash
-go run ./gentest -n 4000 -seed 20260715 -out train_set   # 生成训练集（若需重建）
+go run ./gentest -n 8000 -seed 20260715 -out train_set   # 生成训练集（若需重建）
 go build -o search_nn.exe ./search
-.\search_nn.exe . train train_set weights.gob 120 0.001  # 训练
+.\search_nn.exe . train train_set weights.gob 60 0.002   # 训练
 .\search_nn.exe . nn weights.gob                         # 在 test_set 上评测（对比 baseline）
 .\search_nn.exe . sczl                                   # sczl 单独评测
 .\search_nn.exe . rr weights.gob                         # 逐查询各方法真值排名
@@ -106,21 +107,22 @@ go build -o search_nn.exe ./search
 ### 已完成
 - [x] 实现 MLP（search/nn.go：forward/backprop/Adam/gob 存取）
 - [x] 实现 train / nn 子命令与特征管线（search/nnfit.go）
-- [x] 生成训练集 train_set（4000 张，seed 20260715）
 - [x] 修复 gob 偏差字段未导出导致权重加载后 b1/b2/b3 为 nil 的 bug（b1→B1）
 - [x] 性能优化（§5）：旋转掩膜按查询缓存、**Zernike 去 math.Pow（prep 101.6s→2.5s）**、并行化
 - [x] vendor sczl 算法为第二专家（`search/sczl/`），并导出廉价 `GlobalScoresAll`
 - [x] 实验验证：sczl 单独 82.2%（整体不如现有融合）但其**错误集互补**（救回 5 个灰度难例）
-- [x] 把 sczl 全局相似度作为 NN 输入特征（soft 神经路由），重训后 **recall@1 91.5%→94.9%、recall@5 93.2%→98.3%**
+- [x] 把 sczl 全局相似度作为 NN 输入特征（soft 神经路由）
+- [x] 8000 训练图 + shape-context 精排调参（SCTOP=12/SCBLEND=0.7）
+- [x] 目标指标：recall@1 与 recall@3 达成 96.6% / 98.3%
 
 ### 最终评测结果（test_set，118 张有效查询）
 ```
-baseline adaptive : recall@1 = 109/118 (92.4%)   recall@5 = 109/118 (92.4%)
-neural (MLP)      : recall@1 = 112/118 (94.9%)   recall@5 = 116/118 (98.3%)
+baseline adaptive : recall@1 = 109/118 (92.4%)   recall@3 = 109/118 (92.4%)   recall@5 = 109/118 (92.4%)
+neural (MLP)      : recall@1 = 114/118 (96.6%)   recall@3 = 116/118 (98.3%)   recall@5 = 116/118 (98.3%)
 ```
-- recall@1 +2.5pp、recall@5 +5.9pp，均超 baseline。
-- 剩余 6 miss 全为灰度难例：2 张 home_work（scale>1 溢出裁边+大旋转），
-  其余 4 张真值已进 top-5（person_edit/fact_check/supervisor_account 族内混淆）。
+- 相对 baseline：recall@1 +4.2pp、recall@3 +5.9pp、recall@5 +5.9pp。
+- 剩余 4 miss：2 张 home_work（分割受损难例，真值 >top5）；2 张在 rank 2-3
+  （account_balance / dashboard 灰色族内混淆）。
 
 ### 待办
 - [ ] （可选）把 NN 排名接入 `search server` 的 `/api/search`

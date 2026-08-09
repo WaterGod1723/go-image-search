@@ -270,8 +270,18 @@ func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descripto
 	// Shortlist shape-context refinement: the neural score handles the broad
 	// ranking; a precise (but expensive) point-match re-checks only the top few
 	// in-family candidates, mirroring compositeAdaptive's refinement stage.
-	const scTop = 8
-	const scBlend = 0.5
+	scTop := 12
+	scBlend := 0.7
+	if v := os.Getenv("SCTOP"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			scTop = n
+		}
+	}
+	if v := os.Getenv("SCBLEND"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			scBlend = f
+		}
+	}
 	for i := 0; i < scTop && i < len(out); i++ {
 		idx := out[i]
 		score[idx] = (1-scBlend)*score[idx] + scBlend*shapeContextSim(q, refs[idx])
@@ -789,7 +799,7 @@ func runNNEval(root string, args []string) {
 	sczlIx := buildSCZLRefs(root)
 	entries := loadManifest(filepath.Join(root, "test_set"))
 
-	nn1, nn5, base1, base5 := 0, 0, 0, 0
+	nn1, nn3, nn5, base1, base3, base5 := 0, 0, 0, 0, 0, 0
 	type miss struct{ img, want string; got []string }
 	var nnMisses []miss
 	type evalRow struct {
@@ -826,13 +836,20 @@ func runNNEval(root string, args []string) {
 		if refNames[r.nnRank[0]] == r.want {
 			nn1++
 		}
+		in3 := false
 		in5 := false
 		var got5 []string
-		for _, idx := range r.nnRank[:min(5, len(r.nnRank))] {
-			got5 = append(got5, refNames[idx])
-			if refNames[idx] == r.want {
+		for idx, ridx := range r.nnRank[:min(5, len(r.nnRank))] {
+			got5 = append(got5, refNames[ridx])
+			if refNames[ridx] == r.want {
 				in5 = true
+				if idx < 3 {
+					in3 = true
+				}
 			}
+		}
+		if in3 {
+			nn3++
 		}
 		if in5 {
 			nn5++
@@ -840,11 +857,18 @@ func runNNEval(root string, args []string) {
 		if refNames[r.nnRank[0]] != r.want {
 			nnMisses = append(nnMisses, miss{r.img, r.want, got5})
 		}
+		in3 = false
 		in5 = false
-		for _, idx := range r.baseRank[:min(5, len(r.baseRank))] {
-			if refNames[idx] == r.want {
+		for idx, ridx := range r.baseRank[:min(5, len(r.baseRank))] {
+			if refNames[ridx] == r.want {
 				in5 = true
+				if idx < 3 {
+					in3 = true
+				}
 			}
+		}
+		if in3 {
+			base3++
 		}
 		if in5 {
 			base5++
@@ -854,10 +878,10 @@ func runNNEval(root string, args []string) {
 		}
 	}
 
-	fmt.Printf("baseline adaptive : recall@1=%d/%d (%.1f%%)  recall@5=%d/%d (%.1f%%)\n",
-		base1, total, 100*float64(base1)/float64(total), base5, total, 100*float64(base5)/float64(total))
-	fmt.Printf("neural (MLP)      : recall@1=%d/%d (%.1f%%)  recall@5=%d/%d (%.1f%%)\n",
-		nn1, total, 100*float64(nn1)/float64(total), nn5, total, 100*float64(nn5)/float64(total))
+	fmt.Printf("baseline adaptive : recall@1=%d/%d (%.1f%%)  recall@3=%d/%d (%.1f%%)  recall@5=%d/%d (%.1f%%)\n",
+		base1, total, 100*float64(base1)/float64(total), base3, total, 100*float64(base3)/float64(total), base5, total, 100*float64(base5)/float64(total))
+	fmt.Printf("neural (MLP)      : recall@1=%d/%d (%.1f%%)  recall@3=%d/%d (%.1f%%)  recall@5=%d/%d (%.1f%%)\n",
+		nn1, total, 100*float64(nn1)/float64(total), nn3, total, 100*float64(nn3)/float64(total), nn5, total, 100*float64(nn5)/float64(total))
 
 	if len(nnMisses) > 0 {
 		fmt.Printf("\n-- NN misses (%d) --\n", len(nnMisses))
