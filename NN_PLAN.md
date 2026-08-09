@@ -114,6 +114,10 @@ go build -o search_nn.exe ./search
 - [x] 把 sczl 全局相似度作为 NN 输入特征（soft 神经路由）
 - [x] 8000 训练图 + shape-context 精排调参（SCTOP=12/SCBLEND=0.7）
 - [x] 目标指标：recall@1 与 recall@3 达成 96.6% / 98.3%
+- [x] **接入 search server**：`/api/search` 启动时加载 `weights.gob`（可用 `NN_WEIGHTS` 覆盖路径），
+      优先用 `rankNN`（含 sczl 专家 + shape-context 精排），权重缺失/形状不符则回退 `compositeAdaptive`；
+      引用索引变化时自动重建 sczl 专家索引（与 entries 1:1 对齐）。实测单次查询 ~1s（精排开销），
+      相同查询走 LRU 缓存秒回。
 
 ### 最终评测结果（test_set，118 张有效查询）
 ```
@@ -125,9 +129,9 @@ neural (MLP)      : recall@1 = 114/118 (96.6%)   recall@3 = 116/118 (98.3%)   re
   （account_balance / dashboard 灰色族内混淆）。
 
 ### 待办
-- [ ] （可选）把 NN 排名接入 `search server` 的 `/api/search`
 - [ ] （可选）sczl 更多子特征（occ/fd 分开）或 SC/HOG 精排进 NN，继续压灰度难例
 - [ ] （可选）改进分割：处理 scale>1 溢出与细笔画丢失
+- [ ] （可选）服务端精排提速：shapeContext 目前单查询 ~1s，可限制 SC 点数（如 sczl 的 48 点上限）
 
 ## 8. 已知风险与备注
 

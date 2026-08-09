@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	"image-search-test/search/sczl"
+
 	_ "embed"
 )
 
@@ -82,6 +84,12 @@ type server struct {
 	lastBuilt time.Time
 	cache     *indexCacheFile
 
+	// neural ranker: nn != nil enables the trained MLP (with the sczl
+	// color-agnostic expert) in /api/search; otherwise falls back to the
+	// hand-tuned compositeAdaptive.
+	nn    *MLP
+	sczlIx *sczl.Index
+
 	qCache map[[32]byte]*searchResponse
 	qOrder [][32]byte // FIFO order for LRU eviction
 }
@@ -99,7 +107,29 @@ func newServer(root string) *server {
 	} else if len(s.entries) > 0 {
 		log.Printf("index cache loaded: %d entries from %s", len(s.entries), s.cachePath)
 	}
+	s.loadNN()
 	return s
+}
+
+// loadNN loads the trained fusion MLP weights. The path comes from the
+// NN_WEIGHTS env var (default <root>/weights.gob); if missing or invalid the
+// server degrades gracefully to the heuristic ranker.
+func (s *server) loadNN() {
+	path := os.Getenv("NN_WEIGHTS")
+	if path == "" {
+		path = filepath.Join(s.root, "weights.gob")
+	}
+	m, err := loadMLP(path)
+	if err != nil {
+		log.Printf("neural ranker disabled (no weights at %s): %v", path, err)
+		return
+	}
+	if m.W1 == nil || len(m.W1) != nnH1*nnInput {
+		log.Printf("neural ranker disabled: weights shape mismatch (%s)", path)
+		return
+	}
+	s.nn = m
+	log.Printf("neural ranker enabled: %s", path)
 }
 
 func (s *server) routes() *http.ServeMux {
@@ -215,6 +245,7 @@ func (s *server) buildIndex(dir string) buildResponse {
 	s.entries = entries
 	s.lastBuilt = time.Now()
 	s.cache = cf
+	s.rebuildSCZL()
 	// Reference set changed: invalidate the query cache.
 	s.qCache = make(map[[32]byte]*searchResponse, queryCacheCap)
 	s.qOrder = nil
@@ -240,8 +271,28 @@ func (s *server) loadCache() error {
 	s.entries = c.Entries
 	s.refDir = c.Dir
 	s.lastBuilt = time.Now()
+	s.rebuildSCZL()
 	s.mu.Unlock()
 	return nil
+}
+
+// rebuildSCZL (re)builds the sczl reference descriptors aligned 1:1 with
+// s.entries (same order), as the second expert the neural ranker consumes.
+// Must be called with s.mu held (write lock).
+func (s *server) rebuildSCZL() {
+	ix := sczl.New()
+	for _, e := range s.entries {
+		img, err := loadPNG(filepath.Join(s.refDir, e.Name))
+		if err != nil {
+			ix.AddImage(e.Name, sczl.Descriptor{})
+			continue
+		}
+		// Keep 1:1 alignment with entries even if extraction fails (zero
+		// descriptor simply contributes a low similarity).
+		d := sczl.Extract(img)
+		ix.AddImage(e.Name, d)
+	}
+	s.sczlIx = ix
 }
 
 func (s *server) saveCache(c *indexCacheFile) error {
@@ -368,11 +419,23 @@ func (s *server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := buildFeat(px)
-	refs := make([]*Feat, len(entries))
-	for i := range entries {
-		refs[i] = entries[i].Feat
+	s.mu.RLock()
+	refs := make([]*Feat, len(s.entries))
+	for i := range s.entries {
+		refs[i] = s.entries[i].Feat
 	}
-	ranked := compositeAdaptive(q, refs)
+	nn := s.nn
+	sczlIx := s.sczlIx
+	s.mu.RUnlock()
+
+	var ranked []int
+	if nn != nil {
+		// neural ranker: trained MLP fusing our features + the sczl expert,
+		// with shape-context shortlist refinement.
+		ranked = rankNN(q, refs, nn, sczlIx, sczl.Extract(img))
+	} else {
+		ranked = compositeAdaptive(q, refs)
+	}
 
 	topK := 12
 	if len(ranked) < topK {
