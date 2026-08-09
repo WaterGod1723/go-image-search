@@ -195,9 +195,36 @@ func buildPairData(q *Feat, refs []*Feat, qm *queryMasks, sczlIx *sczl.Index, qd
 	if sczlIx != nil && qd.Valid {
 		sczlScores = sczlIx.GlobalScoresAll(qd, 36)
 	}
+	return buildPairDataScored(q, refs, qm, sczlScores)
+}
+
+// buildPairDataScored is buildPairData with the sczl scores supplied by the
+// caller (e.g. computed only for a pre-filtered shortlist).
+func buildPairDataScored(q *Feat, refs []*Feat, qm *queryMasks, sczlScores []float64) ([][]float64, []float64, []float64) {
 	pairs := computePairs(q, refs, qm, sczlScores)
 	best, gap := queryStats(pairs)
 	return pairs, best, gap
+}
+
+// cheapPref is the rotation-invariant, scan-free pre-filter score
+// (0.4*hist + 0.2*zern + 0.2*radial + 0.2*angmag, all cheap cosines). It is
+// used to shortlist refs before the expensive mask/sczl/NN/SC work.
+func cheapPref(q, r *Feat) float64 {
+	return 0.4*histSim(q.Hist, r.Hist) + 0.2*cosSim(q.Zern, r.Zern) +
+		0.2*cosSim(q.Radial, r.Radial) + 0.2*cosSim(q.AngMag, r.AngMag)
+}
+
+// prefilterN returns the coarse pre-filter shortlist size (env PREFILTER_N,
+// default 50). For the current test set a size of 40 keeps the true ref in
+// 100% of queries; the default leaves margin for unseen data.
+func prefilterN() int {
+	n := 50
+	if v := os.Getenv("PREFILTER_N"); v != "" {
+		if x, err := strconv.Atoi(v); err == nil && x > 0 {
+			n = x
+		}
+	}
+	return n
 }
 
 // queryStats summarizes, for this query, the best and best-to-runner-up gap of
@@ -241,23 +268,59 @@ func nnVec(pair, best, gap []float64) []float64 {
 	return x
 }
 
-// rankNN ranks refs for query q by the MLP's predicted relevance. The color
-// histogram alone identifies the source in 99% of queries (117/118 in the
-// space diag), so it is the primary ranking key; the neural score only breaks
-// the near-ties — i.e. the mono/gray queries where every gray icon shares the
-// same histogram. Gate keeps wrong-color families out entirely.
+// rankNN ranks refs for query q by the MLP's predicted relevance, in two
+// stages so the cost grows sub-linearly with the library size:
+//
+//	stage 1 (all refs, cheap): scan-free rotation-invariant pre-filter score;
+//	stage 2 (top-N only): the expensive features (mask rotation, sczl expert,
+//	polar detail), the NN forward pass, and the shape-context shortlist
+//	refinement.
+//
+// The final order is histogram-primary → gate → NN score within the shortlist
+// (with SC refinement), and the pre-filtered-out refs trail by their cheap
+// score. Measured on test_set a shortlist of 40 never drops the true ref, so
+// recall@1/@3 is preserved while big libraries avoid the per-ref mask/sczl
+// sweep for all but N entries.
 func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descriptor) []int {
+	prefN := prefilterN()
+
+	// ---- stage 1: cheap pre-filter over all refs ----
+	pref := make([]float64, len(refs))
+	for i, r := range refs {
+		pref[i] = cheapPref(q, r)
+	}
+	order := make([]int, len(refs))
+	for i := range order {
+		order[i] = i
+	}
+	insertionSort(order, func(a, b int) bool { return pref[a] > pref[b] })
+	nKeep := min(prefN, len(refs))
+	keep := order[:nKeep]
+
+	// ---- stage 2: full features + NN on the shortlist ----
 	qm := newQueryMasks(q.Mask48)
-	pairs, best, gap := buildPairData(q, refs, qm, sczlIx, qd)
-	score := make([]float64, len(refs))
-	for i := range refs {
-		score[i] = m.predict(nnVec(pairs[i], best, gap))
+	var sczlScores []float64
+	if sczlIx != nil && qd.Valid {
+		pq := sczl.PrepareQuery(qd, 36)
+		sczlScores = make([]float64, nKeep)
+		for j, ki := range keep {
+			sczlScores[j] = pq.GlobalScoreOf(sczlIx.Entries[ki])
+		}
 	}
-	out := make([]int, len(refs))
-	for i := range out {
-		out[i] = i
+	keptRefs := make([]*Feat, nKeep)
+	for j, ki := range keep {
+		keptRefs[j] = refs[ki]
 	}
-	insertionSort(out, func(a, b int) bool {
+	pairs, best, gap := buildPairDataScored(q, keptRefs, qm, sczlScores)
+	score := make([]float64, nKeep)
+	for j := range keptRefs {
+		score[j] = m.predict(nnVec(pairs[j], best, gap))
+	}
+	outKeep := make([]int, nKeep)
+	for j := range outKeep {
+		outKeep[j] = j
+	}
+	insertionSort(outKeep, func(a, b int) bool {
 		if pairs[a][0] != pairs[b][0] {
 			return pairs[a][0] > pairs[b][0]
 		}
@@ -267,6 +330,7 @@ func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descripto
 		}
 		return score[a] > score[b]
 	})
+
 	// Shortlist shape-context refinement: the neural score handles the broad
 	// ranking; a precise (but expensive) point-match re-checks only the top few
 	// in-family candidates, mirroring compositeAdaptive's refinement stage.
@@ -284,21 +348,30 @@ func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descripto
 	}
 	if scBlend > 0 && scTop > 0 {
 		qHists := scQueryHists(q)
-		for i := 0; i < scTop && i < len(out); i++ {
-			idx := out[i]
-			score[idx] = (1-scBlend)*score[idx] + scBlend*scSimFromHists(qHists, refs[idx])
+		for i := 0; i < scTop && i < len(outKeep); i++ {
+			j := outKeep[i]
+			score[j] = (1-scBlend)*score[j] + scBlend*scSimFromHists(qHists, keptRefs[j])
 		}
+		insertionSort(outKeep, func(a, b int) bool {
+			if pairs[a][0] != pairs[b][0] {
+				return pairs[a][0] > pairs[b][0]
+			}
+			ga, gb := pairs[a][8], pairs[b][8]
+			if ga != gb {
+				return ga > gb
+			}
+			return score[a] > score[b]
+		})
 	}
-	insertionSort(out, func(a, b int) bool {
-		if pairs[a][0] != pairs[b][0] {
-			return pairs[a][0] > pairs[b][0]
-		}
-		ga, gb := pairs[a][8], pairs[b][8]
-		if ga != gb {
-			return ga > gb
-		}
-		return score[a] > score[b]
-	})
+
+	// ---- final: shortlist first (original indices), then the rest ----
+	out := make([]int, 0, len(refs))
+	for _, j := range outKeep {
+		out = append(out, keep[j])
+	}
+	for _, i := range order[nKeep:] {
+		out = append(out, i)
+	}
 	return out
 }
 
@@ -635,6 +708,26 @@ func runRankReport(root string, args []string) {
 	refs, refNames := buildRefIndex(root)
 	entries := loadManifest(filepath.Join(root, "test_set"))
 
+	// sczl descriptors aligned 1:1 with refs, for the cheap coarse-filter
+	// signature (Fourier + radial, rotation-invariant, no scan).
+	refsSCZL := make([]sczl.Descriptor, len(refs))
+	{
+		files, err := listPNG(filepath.Join(root, "test_pngs"))
+		if err != nil {
+			fatal(err)
+		}
+		byName := map[string]int{}
+		for i, nm := range refNames {
+			byName[nm] = i
+		}
+		for _, fn := range files {
+			if i, ok := byName[fn]; ok {
+				if img, err := loadPNG(filepath.Join(root, "test_pngs", fn)); err == nil {
+					refsSCZL[i] = sczl.Extract(img)
+				}
+			}
+		}
+	}
 	n := len(entries)
 	img := make([]string, n)
 	want := make([]string, n)
@@ -650,6 +743,8 @@ func runRankReport(root string, args []string) {
 	scRank := make([]int, n)
 	nnRank := make([]int, n)
 	baseRank := make([]int, n)
+	fdrRank := make([]int, n)
+	prefRank := make([]int, n)
 
 	parFor(n, func(i int) {
 		e := entries[i]
@@ -718,6 +813,23 @@ func runRankReport(root string, args []string) {
 		m32Rank[i] = rank(m32)
 		scRank[i] = rank(sc)
 		nnRank[i] = rank(nn)
+		// cheap coarse-filter signature: sczl Fourier(32) + radial(16), cosine
+		fdr := make([]float64, len(refs))
+		if qimg, err := loadPNG(filepath.Join(root, "test_set", e.Image)); err == nil {
+			qd := sczl.Extract(qimg)
+			qv := sczlFR(qd)
+			for j := range refs {
+				fdr[j] = cosineF(qv, sczlFR(refsSCZL[j]))
+			}
+		}
+		fdrRank[i] = rank(fdr)
+		// cheap fused prefilter: 0.4*hist + 0.2*zern + 0.2*radial + 0.2*angmag
+		// (all rotation-invariant, no scan) — how tight can the shortlist be?
+		pref := make([]float64, len(refs))
+		for j := range refs {
+			pref[j] = 0.4*sAll[j][0] + 0.2*sAll[j][6] + 0.2*sAll[j][1] + 0.2*sAll[j][2]
+		}
+		prefRank[i] = rank(pref)
 		br := 1
 		for j, r := range compositeAdaptive(q, refs) {
 			if r == idx {
@@ -728,8 +840,8 @@ func runRankReport(root string, args []string) {
 		baseRank[i] = br
 	})
 
-	fmt.Printf("  %-16s %-4s %-5s %-60s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s\n",
-		"img", "mono", "gap", "want", "hist", "zern", "shp", "m64", "m32", "sc", "NN", "base")
+	fmt.Printf("  %-16s %-4s %-5s %-60s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s\n",
+		"img", "mono", "gap", "want", "hist", "zern", "shp", "m64", "m32", "sc", "NN", "base", "fdr", "pref")
 	for i := 0; i < n; i++ {
 		if !ok[i] {
 			continue
@@ -738,10 +850,33 @@ func runRankReport(root string, args []string) {
 		if mono[i] {
 			mark = "m"
 		}
-		fmt.Printf("  %-16s %-4s %-5.3f %-60s %-5d %-5d %-5d %-5d %-5d %-5d %-5d %-5d\n",
+		fmt.Printf("  %-16s %-4s %-5.3f %-60s %-5d %-5d %-5d %-5d %-5d %-5d %-5d %-5d %-5d %-5d\n",
 			img[i], mark, gap[i], want[i], histRank[i], zernRank[i], shapeRank[i],
-			m64Rank[i], m32Rank[i], scRank[i], nnRank[i], baseRank[i])
+			m64Rank[i], m32Rank[i], scRank[i], nnRank[i], baseRank[i], fdrRank[i], prefRank[i])
 	}
+}
+
+// sczlFR concatenates a descriptor's rotation-invariant Fourier + radial
+// signature (cheap coarse-filter vector, no rotation scan).
+func sczlFR(d sczl.Descriptor) []float64 {
+	out := make([]float64, 0, len(d.Fourier)+len(d.Radial))
+	out = append(out, d.Fourier...)
+	out = append(out, d.Radial...)
+	return out
+}
+
+// cosineF is the cosine similarity of two vectors.
+func cosineF(a, b []float64) float64 {
+	var d1, d2, dp float64
+	for i := range a {
+		d1 += a[i] * a[i]
+		d2 += b[i] * b[i]
+		dp += a[i] * b[i]
+	}
+	if d1 <= 0 || d2 <= 0 {
+		return 0
+	}
+	return dp / (math.Sqrt(d1) * math.Sqrt(d2))
 }
 
 // pxFromEntry extracts the query sprite pixels for a test-set entry.

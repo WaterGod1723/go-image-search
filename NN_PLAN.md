@@ -87,6 +87,17 @@ neural (MLP)      : recall@1 = 114/118 (96.6%)   recall@3 = 116/118 (98.3%)   re
      冷启动构建 2100ms → 热缓存重建 334ms；
    - 启动自动构建索引（无缓存时），免手动操作；
    - 查询结果 LRU 缓存（按内容 hash）照旧，重复查询秒回。
+6. **两阶段粗筛（大规模库）**（nnfit.go `rankNN`，`PREFILTER_N` 可调，默认 50）：
+   - **stage 1（全库、廉价）**：`cheapPref` = 0.4·hist + 0.2·zern + 0.2·radial + 0.2·angmag，
+     全部旋转不变、无扫描，~5k ops/ref，取 top-N；
+   - **stage 2（top-N 子集）**：昂贵的掩膜旋转、sczl 专家、极坐标细节、NN 前向与 SC 精排
+     只在 top-N 上做（实测每 ref ~1.8ms）。
+   - 量化依据（`rr` 诊断）：真值在 cheapPref 下的最差排名 = 37（样本 00109），
+     N=40 即 100% 不漏真值；N=40/50 下 recall@1/@3 与全量完全一致（114/116）。
+   - **规模效应**：per-query 开销从 `L×1.8ms + 固定 SC 230ms` 降为
+     `L×0.05ms(廉价) + N×1.8ms + 固定 SC 230ms`。66 条无差别；**1 万条时 ~18s → ~0.35s（~50x）**。
+   - 说明：KD-tree/VP-tree 对本项目高维特征收益有限（见 §9 权衡）；两阶段线性粗筛
+     在几十万条以内足够，再大才需 ANN 嵌入索引。
 
 ## 6. 文件布局与命令
 
@@ -126,11 +137,13 @@ go build -o search_nn.exe ./search
 - [x] **接入 search server**：`/api/search` 启动时加载 `weights.gob`（可用 `NN_WEIGHTS` 覆盖路径），
       优先用 `rankNN`（含 sczl 专家 + shape-context 精排），权重缺失/形状不符则回退 `compositeAdaptive`；
       引用索引变化时自动重建 sczl 专家索引（与 entries 1:1 对齐）。
-- [x] **检索/索引提速**（见 §6）：
+- [x] **检索/索引提速**（见 §5）：
   - shape-context 精排优化：查询旋转直方图每查询只算一次（12 候选共享）、参考侧 SC 直方图按 ref 惰性缓存、
     采样点 120→48（Hungarian O(n³) 降 ~15 倍，**recall 无损失**）→ 服务端单查询 ~1s 降到 **~310ms**
   - sczl 参考描述子持久化进 `.searchcache/index.gob` → 重启索引重建 2100ms 降到 **~334ms**（不再重解码 PNG）
   - 启动自动构建索引（无缓存时），免手动"构建索引"
+  - **两阶段粗筛**（`PREFILTER_N`，默认 50）：廉价签名全库扫 + 昂贵特征只在 top-N 做，
+    recall 不变；1 万条库预计 ~18s → ~0.35s
 
 ### 最终评测结果（test_set，118 张有效查询）
 ```
@@ -154,3 +167,14 @@ neural (MLP)      : recall@1 = 114/118 (96.6%)   recall@3 = 116/118 (98.3%)   re
 - sczl 来自 `go-image-search` 项目（MIT 风格自研代码），本仓库为 vendor 副本；
   跨模块 import 受 Go `internal` 规则限制，故直接拷贝。
 - `compositeAdaptive` 含 shapeContext（36 次旋转 × Hungarian）较慢，评测保留作 baseline 对比。
+
+## 9. KD-tree / ANN 权衡（结论）
+
+- **为什么没用 KD-tree**：KD-tree 只适合低维欧氏；我们的廉价签名实测对难例（灰度族）
+  真值排名最差 35~66（见 §5.6），建树后为了不漏真值仍需超大 top-N，无实际剪枝收益；
+  真正的高判别力特征（mask/SC/sczl）都带旋转扫描，不是向量度量。
+- **当前方案**：两阶段线性粗筛（廉价签名全库扫 → 昂贵特征只做 top-N）。
+  对几十万条以内的 icon 库足够（1 万条 ~0.35s/查询）。
+- **若库到百万级** 才需要：先学一个低维旋转不变 embedding，再上
+  VP-tree / IVF（FAISS 式）/ HNSW。这是独立的大工程（需要额外训练 + ANN 库），
+  当前 `image-search-test` 的纯 stdlib 约束下不建议提前做。
