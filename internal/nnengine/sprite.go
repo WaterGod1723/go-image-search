@@ -1,10 +1,8 @@
-﻿package nnengine
+package nnengine
 
 import (
 	"fmt"
 	"image"
-	"image/color"
-	"image/png"
 	"math"
 	"os"
 )
@@ -17,27 +15,6 @@ type Px struct {
 	A       float64 // coverage weight (alpha, or fg-distance for queries)
 }
 
-func loadPNG(path string) (*image.NRGBA, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	img, err := png.Decode(f)
-	if err != nil {
-		return nil, err
-	}
-	b := img.Bounds()
-	nrgba := image.NewNRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
-	for y := 0; y < b.Dy(); y++ {
-		for x := 0; x < b.Dx(); x++ {
-			nrgba.Set(x, y, color.NRGBAModel.Convert(img.At(b.Min.X+x, b.Min.Y+y)))
-		}
-	}
-	return nrgba, nil
-}
-
-// refPixels extracts the opaque pixels (alpha > 4/255) of a source icon.
 func refPixels(img *image.NRGBA) []Px {
 	b := img.Bounds()
 	var px []Px
@@ -84,9 +61,9 @@ func estimateBG(img *image.NRGBA) Px {
 			best, bestbi = c, i
 		}
 	}
-	r := (bestbi / (dim * dim)) * 256 / dim + 8
-	g := ((bestbi / dim) % dim) * 256 / dim + 8
-	bl := (bestbi % dim) * 256 / dim + 8
+	r := (bestbi/(dim*dim))*256/dim + 8
+	g := ((bestbi/dim)%dim)*256/dim + 8
+	bl := (bestbi%dim)*256/dim + 8
 	return Px{R: uint8(r), G: uint8(g), B: uint8(bl)}
 }
 

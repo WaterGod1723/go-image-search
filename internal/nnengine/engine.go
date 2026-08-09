@@ -8,8 +8,11 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sync"
 	"time"
 
+	"go-image-search/internal/imageproc"
 	"go-image-search/internal/nnengine/sczl"
 )
 
@@ -85,10 +88,13 @@ func (e *Engine) LoadIndex(cachePath string) error {
 	return nil
 }
 
-// BuildIndex scans dir for reference sprites and builds the Feat + sczl
-// descriptors, reusing a persisted cache when present.
+// BuildIndex 扫描 dir（递归全部子目录）中的全部受支持图片（png/jpg/gif/webp/
+// bmp/tiff/avif/svg 等）构建 Feat + sczl 描述子。Go 原生解码失败的特殊格式
+// （svg/avif 等）在 GUI 环境中会交给注入的 webview 多线程 Worker 转换器
+// （imageproc.SetConverter）转换；解码与特征提取以多 worker 并行以提升效率。
+// 已有持久化缓存时复用。
 func (e *Engine) BuildIndex(dir string, cachePath string) error {
-	files, err := listPNG(dir)
+	files, err := imageproc.LoadSupported(dir)
 	if err != nil {
 		return err
 	}
@@ -99,24 +105,86 @@ func (e *Engine) BuildIndex(dir string, cachePath string) error {
 			return nil
 		}
 	}
+
+	// 并行 worker 池：解码（含可能的 webview 转换）+ 特征提取并发执行，
+	// 按原文件顺序合并结果，保证 refs/names/sczlIx 三者在索引上对齐。
+	type result struct {
+		idx  int
+		ref  *Feat
+		name string
+		d    sczl.Descriptor
+	}
+	workers := runtime.GOMAXPROCS(0)
+	if workers > 8 {
+		workers = 8
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > len(files) {
+		workers = len(files)
+	}
+	jobs := make(chan int)
+	results := make(chan result, workers)
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for fi := range jobs {
+				p := files[fi]
+				img, err := imageproc.Load(p)
+				if err != nil {
+					results <- result{idx: fi}
+					continue
+				}
+				nrgba := toNRGBA(img)
+				px := refPixels(nrgba)
+				if len(px) == 0 {
+					results <- result{idx: fi}
+					continue
+				}
+				results <- result{
+					idx: fi,
+					ref: buildFeat(px),
+					// full path (forward slashes) so the GUI can load thumbnails
+					// from any user-selected directory.
+					name: filepath.ToSlash(p),
+					d:    sczl.Extract(nrgba),
+				}
+			}
+		}()
+	}
+	go func() {
+		for fi := range files {
+			jobs <- fi
+		}
+		close(jobs)
+		wg.Wait()
+		close(results)
+	}()
+
 	refs := make([]*Feat, 0, len(files))
 	names := make([]string, 0, len(files))
 	ix := sczl.New()
-	for _, fn := range files {
-		img, err := loadPNG(filepath.Join(dir, fn))
-		if err != nil {
-			continue
+	next := 0
+	pending := make(map[int]result)
+	for r := range results {
+		pending[r.idx] = r
+		for {
+			cur, ok := pending[next]
+			if !ok {
+				break
+			}
+			delete(pending, next)
+			next++
+			if cur.ref == nil {
+				continue
+			}
+			refs = append(refs, cur.ref)
+			names = append(names, cur.name)
+			ix.AddImage(cur.name, cur.d)
 		}
-		px := refPixels(img)
-		if len(px) == 0 {
-			continue
-		}
-		refs = append(refs, buildFeat(px))
-		// full path (forward slashes) so the GUI can load thumbnails from any
-		// user-selected directory; the frontend strips the path for display.
-		names = append(names, filepath.ToSlash(filepath.Join(dir, fn)))
-		d := sczl.Extract(img)
-		ix.AddImage(fn, d)
 	}
 	e.refs = refs
 	e.names = names

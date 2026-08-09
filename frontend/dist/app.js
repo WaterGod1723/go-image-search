@@ -54,7 +54,8 @@ function toast(msg) {
 }
 
 /* ---------------- 主题切换 ---------------- */
-const THEME_META = { kawaii: '#ff8fb0', mature: '#0e1220' };
+const THEME_META = { kawaii: '#ff8fb0', mature: '#0e1220', pink: '#ff4fa3', matcha: '#7ba05b' };
+const THEME_ORDER = ['kawaii', 'mature', 'pink', 'matcha'];
 function applyTheme(name) {
   document.body.dataset.theme = name;
   const meta = document.querySelector('meta[name="theme-color"]');
@@ -62,7 +63,9 @@ function applyTheme(name) {
   try { localStorage.setItem('gis-theme', name); } catch (e) { /* ignore */ }
 }
 $('#theme-toggle').addEventListener('click', () => {
-  applyTheme(document.body.dataset.theme === 'mature' ? 'kawaii' : 'mature');
+  const cur = document.body.dataset.theme;
+  const next = THEME_ORDER[(THEME_ORDER.indexOf(cur) + 1) % THEME_ORDER.length];
+  applyTheme(next);
 });
 (function initTheme() {
   let saved = 'kawaii';

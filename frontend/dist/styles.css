@@ -46,6 +46,68 @@ body {
   --danger: #ff4d6d;
 }
 
+/* ---------- 主题：少女粉 ---------- */
+body[data-theme="pink"] {
+  --bg: linear-gradient(160deg, #fff5fa 0%, #ffe9f4 55%, #ffe0ef 100%);
+  --bg-deep: #ffd6ea;
+  --card: rgba(255, 255, 255, 0.88);
+  --card-solid: #ffffff;
+  --text: #5a2d4a;
+  --text-dim: #c27ba6;
+  --text-faint: #ddb0c9;
+  --accent: #ff4fa3;
+  --accent-deep: #f5287f;
+  --accent-soft: #ffe0ef;
+  --accent-grad-1: #ff8ac2;
+  --accent-grad-2: #f5287f;
+  --gold: #ffb84d;
+  --fill: rgba(255, 79, 163, 0.10);
+  --track: rgba(255, 79, 163, 0.20);
+  --hairline: rgba(255, 79, 163, 0.18);
+  --separator: rgba(255, 79, 163, 0.14);
+  --nav-bg: rgba(255, 244, 250, 0.78);
+  --shadow: 0 10px 30px rgba(255, 79, 163, 0.20);
+  --shadow-soft: 0 6px 20px rgba(255, 79, 163, 0.14);
+  --thumb-bg: #ffffff;
+  --blob-1: rgba(255, 122, 186, 0.35);
+  --blob-2: rgba(255, 182, 219, 0.30);
+  --blob-3: rgba(255, 214, 234, 0.40);
+  --toast-bg: rgba(90, 45, 74, 0.92);
+  --glass: rgba(255, 255, 255, 0.65);
+  --danger: #ff2d78;
+}
+
+/* ---------- 主题：抹茶绿 ---------- */
+body[data-theme="matcha"] {
+  --bg: linear-gradient(160deg, #f2f7ec 0%, #e6f0dc 55%, #dceac9 100%);
+  --bg-deep: #d3e6bd;
+  --card: rgba(255, 255, 255, 0.86);
+  --card-solid: #ffffff;
+  --text: #3a4a33;
+  --text-dim: #8aa17f;
+  --text-faint: #aec2a3;
+  --accent: #7ba05b;
+  --accent-deep: #5c8a4e;
+  --accent-soft: #e6f2da;
+  --accent-grad-1: #a5c98a;
+  --accent-grad-2: #5c8a4e;
+  --gold: #c9a86a;
+  --fill: rgba(123, 160, 91, 0.10);
+  --track: rgba(123, 160, 91, 0.20);
+  --hairline: rgba(123, 160, 91, 0.18);
+  --separator: rgba(123, 160, 91, 0.14);
+  --nav-bg: rgba(248, 252, 244, 0.78);
+  --shadow: 0 10px 30px rgba(92, 138, 78, 0.20);
+  --shadow-soft: 0 6px 20px rgba(92, 138, 78, 0.14);
+  --thumb-bg: #ffffff;
+  --blob-1: rgba(150, 190, 120, 0.35);
+  --blob-2: rgba(170, 210, 150, 0.30);
+  --blob-3: rgba(220, 235, 190, 0.40);
+  --toast-bg: rgba(58, 74, 51, 0.92);
+  --glass: rgba(255, 255, 255, 0.6);
+  --danger: #e0655a;
+}
+
 /* ---------- 主题：清冷御姐 ---------- */
 body[data-theme="mature"] {
   --bg: linear-gradient(160deg, #0e1220 0%, #171b2e 55%, #0e1426 100%);
@@ -91,6 +153,23 @@ body {
 }
 
 /* ---------- 背景装饰 ---------- */
+.bg-photo {
+  position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none;
+  background-size: cover; background-position: center 30%;
+  opacity: 0; transition: opacity 1.2s ease;
+}
+body[data-theme="pink"] .bg-photo {
+  background-image: linear-gradient(rgba(255, 245, 250, 0.55), rgba(255, 245, 250, 0.55)),
+    url("./assets/bg-pink.jpg");
+  opacity: .5;
+}
+body[data-theme="matcha"] .bg-photo {
+  background-image: linear-gradient(rgba(242, 247, 236, 0.55), rgba(242, 247, 236, 0.55)),
+    url("./assets/bg-matcha.jpg");
+  opacity: .5;
+}
+body[data-theme="kawaii"] .bg-photo,
+body[data-theme="mature"] .bg-photo { opacity: 0; }
 .bg-deco { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
 .blob { position: absolute; border-radius: 50%; filter: blur(70px); opacity: .7; transition: background 1s ease; }
 .blob-1 { width: 46vmax; height: 46vmax; top: -18vmax; right: -14vmax; background: var(--blob-1); animation: drift 22s ease-in-out infinite; }
