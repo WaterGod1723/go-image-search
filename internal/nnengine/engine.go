@@ -19,6 +19,7 @@ type Hit struct {
 	Rank      int       `json:"rank"`
 	Scores    []float64 `json:"scores"`    // 7 per-feature similarities
 	MaskScore float64   `json:"maskScore"` // rotation-aligned dice
+	RankScore float64   `json:"rankScore"` // 实际用于排序的神经网络相关度
 }
 
 // cacheEntry is one persisted reference: name + the two descriptor sets.
@@ -189,8 +190,9 @@ func (e *Engine) Search(img image.Image, topK int) ([]Hit, error) {
 	}
 	q := buildFeat(px)
 	var ranked []int
+	var rankScore []float64
 	if e.nn != nil {
-		ranked = rankNN(q, e.refs, e.nn, e.sczlIx, sczl.Extract(img))
+		ranked, rankScore = rankNN(q, e.refs, e.nn, e.sczlIx, sczl.Extract(img))
 	} else {
 		// no weights: fall back to the cheap pre-filter ranking
 		ranked = make([]int, len(e.refs))
@@ -202,6 +204,7 @@ func (e *Engine) Search(img image.Image, topK int) ([]Hit, error) {
 			ranked[i] = i
 		}
 		insertionSort(ranked, func(a, b int) bool { return pref[a] > pref[b] })
+		rankScore = pref
 	}
 	hits := make([]Hit, 0, topK)
 	for i := 0; i < topK; i++ {
@@ -211,6 +214,7 @@ func (e *Engine) Search(img image.Image, topK int) ([]Hit, error) {
 			Rank:      i + 1,
 			Scores:    scores(q, e.refs[idx]),
 			MaskScore: maskScore(q, e.refs[idx]),
+			RankScore: rankScore[i],
 		})
 	}
 	return hits, nil

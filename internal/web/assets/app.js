@@ -7,7 +7,6 @@ const TITLES = {
   search: ['搜索', '按图像内容检索图片库'],
   library: ['图库', '浏览已索引的图片'],
   index: ['索引', '构建与加载图片索引'],
-  debug: ['调试', '查看图像区域划分'],
 };
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -75,42 +74,6 @@ function fillDatalist(key) {
 // 启动时填充历史下拉
 ['dir-history', 'index-history'].forEach(fillDatalist);
 
-/* ---------------- 检索策略切换 ---------------- */
-let currentAlgo = 'sczl';
-const algoLabels = { region: '区域', sczl: 'SCZL' };
-async function refreshAlgorithm() {
-  try {
-    const res = await fetchJSON('/api/algorithm');
-    currentAlgo = res.algorithm || 'region';
-  } catch (e) { /* ignore */ }
-  updateAlgoUI();
-}
-function updateAlgoUI() {
-  $('#algo-label').textContent = algoLabels[currentAlgo] || currentAlgo;
-  $('#algo-toggle').classList.toggle('sczl', currentAlgo === 'sczl');
-  // 同步算法到 body，CSS 据此控制仅适用于某算法的参数显隐
-  document.body.dataset.algo = currentAlgo;
-}
-$('#algo-toggle').addEventListener('click', async () => {
-  const next = currentAlgo === 'region' ? 'sczl' : 'region';
-  try {
-    await fetchJSON('/api/algorithm', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ algorithm: next }),
-    });
-    currentAlgo = next;
-    updateAlgoUI();
-    // 算法切换后索引与参数语义均不同，清空旧查询与结果，避免误判。
-    resetQueryState();
-    toast(`已切换为 ${algoLabels[next]} 策略`);
-    refreshStatus();
-    loadLibrary();
-  } catch (e) {
-    toast(e.message);
-  }
-});
-
 /* ---------------- 标签切换 ---------------- */
 function switchTab(name) {
   $$('.page').forEach(p => p.classList.toggle('active', p.id === 'tab-' + name));
@@ -146,17 +109,6 @@ function resetPickers() {
     el.style.display = 'none';
     el.removeAttribute('src');
   });
-}
-
-// resetQueryState 清空当前查询图片与结果区，用于切换算法等需要重置上下文的场景。
-function resetQueryState() {
-  queryFile = null;
-  resetPickers();
-  $('#query-name').textContent = '';
-  $('#query-name').style.display = 'none';
-  $('#btn-search').disabled = true;
-  $('#results').innerHTML = '';
-  $('#results-empty').hidden = true;
 }
 
 function setQueryFile(f, source) {
@@ -210,15 +162,6 @@ document.addEventListener('paste', e => {
 });
 
 /* ---------------- 搜索 ---------------- */
-const colorRange = $('#color-range');
-const maxdistRange = $('#maxdist-range');
-$('#color-val').textContent = Number(colorRange.value).toFixed(2);
-$('#maxdist-val').textContent = maxdistRange.value;
-colorRange.addEventListener('input', () => $('#color-val').textContent = Number(colorRange.value).toFixed(2));
-maxdistRange.addEventListener('input', () => $('#maxdist-val').textContent = maxdistRange.value);
-// 参数变化（松开滑块/切换返回数量）后，若已有查询图片则即时重新搜索
-colorRange.addEventListener('change', () => { if (queryFile) doSearch(); });
-maxdistRange.addEventListener('change', () => { if (queryFile) doSearch(); });
 $('#seg-top').addEventListener('click', e => {
   const btn = e.target.closest('button');
   if (!btn) return;
@@ -235,8 +178,6 @@ async function doSearch() {
   const fd = new FormData();
   fd.append('image', queryFile);
   fd.append('top', segVal('#seg-top'));
-  fd.append('maxdist', maxdistRange.value);
-  fd.append('colorWeight', colorRange.value);
 
   $('#search-busy').hidden = false;
   $('#btn-search').disabled = true;
@@ -262,7 +203,7 @@ function renderResults(data) {
   const box = $('#results');
   box.innerHTML = '';
   $('#results-empty p').textContent = '暂无结果';
-  $('#results-empty span').textContent = `查询区域 ${data.regions} 个，无匹配图片`;
+  $('#results-empty span').textContent = '无匹配图片';
   if (!data.matches || data.matches.length === 0) {
     $('#results-empty').hidden = false;
     return;
@@ -273,7 +214,6 @@ function renderResults(data) {
 
 function resultCard(m, i) {
   const score = Math.round(m.score * 100);
-  const cover = Math.round(m.cover * 100);
   const el = document.createElement('div');
   el.className = 'card result-card';
   const src = '/api/image?path=' + encodeURIComponent(m.imageId);
@@ -283,15 +223,10 @@ function resultCard(m, i) {
     '<div class="result-body">' +
       '<div class="result-top"><span class="result-name">' + esc(base(m.imageId)) + '</span><span class="rank">#' + (i + 1) + '</span></div>' +
       '<div class="scorebar"><div style="width:' + score + '%"></div></div>' +
-      '<div class="result-meta">相似度 ' + score + '% · 覆盖 ' + cover + '% · 命中 ' + m.count + ' 区域</div>' +
+      '<div class="result-meta">相似度 ' + score + '%</div>' +
       '<div class="result-actions">' +
         '<button class="copy-btn"><span class="copy-label">复制路径</span></button>' +
         '<button class="copy-btn"><span class="copy-label">复制相对路径</span></button>' +
-      '</div>' +
-      '<div class="result-regions">' +
-        (m.regions || []).map(r =>
-          '<div class="rr"><span><span class="dot" style="background:' + esc(r.color) + '"></span>区域 #' + r.regionId + '</span><span>dist ' + r.dist + '</span></div>'
-        ).join('') +
       '</div>' +
     '</div>';
   el.querySelector('.thumb').addEventListener('click', () => viewImage(src, m.imageId));
@@ -378,7 +313,7 @@ function updateBuildUI(job) {
   $('#build-pct').textContent = pct + '%';
   const etaEl = $('#build-eta');
   if (job.state === 'done') {
-    $('#build-label').textContent = '构建完成 · ' + job.images + ' 图像 · ' + job.regions + ' 区域';
+    $('#build-label').textContent = '构建完成 · ' + job.images + ' 图像';
     $('#build-file').textContent = '索引已保存至 ' + job.index;
     etaEl.hidden = true;
   } else if (job.state === 'error') {
@@ -420,11 +355,6 @@ $('#btn-build').addEventListener('click', async () => {
   const body = {
     dir: $('#cfg-dir').value.trim(),
     out: $('#cfg-out').value.trim(),
-    thresholdPct: parseFloat($('#cfg-thr').value),
-    thresholdFactor: parseFloat($('#cfg-factor').value),
-    minAreaRatio: parseFloat($('#cfg-minarea').value),
-    medianFilterK: parseInt($('#cfg-median').value, 10),
-    connectivity: parseInt(segVal('#seg-conn'), 10),
   };
   if (!body.dir) { toast('请输入图像库目录'); return; }
 
@@ -476,7 +406,7 @@ $('#btn-load').addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ index: idx }),
     });
-    toast('已加载：' + res.images + ' 图像 / ' + res.regions + ' 区域');
+    toast('已加载：' + res.images + ' 图像');
     // 记录索引路径历史，再清空输入框
     if (idx) saveHistory('index-history', idx);
     $('#cfg-load').value = '';
@@ -496,7 +426,6 @@ async function refreshStatus() {
     libRoot = st.root || libRoot;
     $('#st-load').textContent = st.loaded ? '已加载' : '未加载';
     $('#st-images').textContent = st.images;
-    $('#st-regions').textContent = st.regions;
     $('#st-index').textContent = st.indexPath || '-';
     $('#st-root').textContent = st.root || '-';
     // 启动参数 -root / 已加载索引路径回填到输入框（仅当用户未输入时，避免覆盖）
@@ -511,139 +440,6 @@ async function refreshStatus() {
   } catch (e) { /* ignore */ }
 }
 
-/* ---------------- 调试 ---------------- */
-let segQuery = null;
-let segLabelMap = null;     // { data: Uint8ClampedArray, width, height }
-let segRegionsById = new Map();
-
-function refreshSegImage() {
-  if (!segQuery) return;
-  $('#seg-img').src = '/api/segments.png?' + segQuery.toString();
-}
-
-// 加载标签图（每个像素编码区域 ID），用于鼠标悬停反查区域。
-async function loadSegLabelMap(query) {
-  const url = '/api/segments.map.png?' + query.toString();
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  const blob = await res.blob();
-  const urlObj = URL.createObjectURL(blob);
-  try {
-    const img = await new Promise((resolve, reject) => {
-      const i = new Image();
-      i.onload = () => resolve(i);
-      i.onerror = reject;
-      i.src = urlObj;
-    });
-    const canvas = document.createElement('canvas');
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(img, 0, 0);
-    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    return { data: imgData.data, width: canvas.width, height: canvas.height };
-  } finally {
-    URL.revokeObjectURL(urlObj);
-  }
-}
-
-function labelAt(map, x, y) {
-  if (!map || x < 0 || y < 0 || x >= map.width || y >= map.height) return 0;
-  const i = (y * map.width + x) * 4;
-  return (map.data[i] << 16) | (map.data[i + 1] << 8) | map.data[i + 2];
-}
-
-function showSegTip(clientX, clientY, html) {
-  const tip = $('#seg-tip');
-  tip.innerHTML = html;
-  tip.hidden = false;
-  // 默认放在光标右下，靠近视口边缘则翻转
-  const tw = tip.offsetWidth, th = tip.offsetHeight;
-  const vw = window.innerWidth, vh = window.innerHeight;
-  let left = clientX + 14;
-  let top = clientY + 14;
-  if (left + tw > vw - 8) left = clientX - tw - 14;
-  if (top + th > vh - 8) top = clientY - th - 14;
-  tip.style.left = left + 'px';
-  tip.style.top = top + 'px';
-}
-
-function hideSegTip() { $('#seg-tip').hidden = true; }
-
-$('#btn-seg').addEventListener('click', async () => {
-  const path = $('#seg-path').value.trim();
-  if (!path) { toast('请输入图像路径'); return; }
-  segQuery = new URLSearchParams({
-    path,
-    thresholdPct: $('#seg-thr').value,
-    median: $('#seg-median').value,
-    connectivity: segVal('#seg-conn2'),
-    mode: segVal('#seg-mode'),
-  });
-  $('#seg-busy').hidden = false;
-  $('#btn-seg').disabled = true;
-  try {
-    const [data, labelMap] = await Promise.all([
-      fetchJSON('/api/segments?' + segQuery.toString()),
-      loadSegLabelMap(segQuery).catch(() => null),
-    ]);
-    $('#seg-info').textContent = '图像 ' + data.width + '×' + data.height + ' · ' + data.regions.length + ' 个区域';
-    segLabelMap = labelMap;
-    segRegionsById = new Map();
-    data.regions.forEach(r => segRegionsById.set(r.id, r));
-    refreshSegImage();
-    $('#seg-img').hidden = false;
-    $('#seg-mode').hidden = false;
-    const box = $('#seg-regions');
-    box.hidden = false;
-    box.innerHTML = '';
-    data.regions.forEach(r => {
-      const div = document.createElement('div');
-      div.className = 'rr';
-      const tag = r.whole ? '<span class="tag tag-whole">整图辅助</span>' : '';
-      div.innerHTML =
-        '<span><span class="dot" style="background:' + esc(r.color) + '"></span>区域 #' + r.id + tag + '</span>' +
-        '<span>面积 ' + r.area + ' · bbox ' + r.bbox.join(',') + '</span>';
-      box.appendChild(div);
-    });
-  } catch (e) {
-    toast(e.message);
-  } finally {
-    $('#seg-busy').hidden = true;
-    $('#btn-seg').disabled = false;
-  }
-});
-
-// 切换区域可视化模式（边框 / 填色），仅刷新预览图。
-$('#seg-mode').addEventListener('click', e => {
-  const btn = e.target.closest('button');
-  if (!btn || !segQuery) return;
-  segQuery.set('mode', btn.dataset.val);
-  refreshSegImage();
-});
-
-// 鼠标悬停预览图时，按像素反查区域并展示信息。
-const segImg = $('#seg-img');
-segImg.addEventListener('mousemove', e => {
-  if (!segLabelMap) return;
-  const rect = segImg.getBoundingClientRect();
-  if (rect.width === 0 || rect.height === 0) return;
-  const nx = Math.floor((e.clientX - rect.left) / rect.width * segLabelMap.width);
-  const ny = Math.floor((e.clientY - rect.top) / rect.height * segLabelMap.height);
-  const id = labelAt(segLabelMap, nx, ny);
-  if (id > 0 && segRegionsById.has(id)) {
-    const r = segRegionsById.get(id);
-    showSegTip(e.clientX, e.clientY,
-      '<span class="dot" style="background:' + esc(r.color) + '"></span>' +
-      '区域 #' + r.id + (r.whole ? ' <span class="tag tag-whole">整图辅助</span>' : '') +
-      ' · 面积 ' + r.area + ' · bbox ' + r.bbox.join(','));
-  } else {
-    hideSegTip();
-  }
-});
-segImg.addEventListener('mouseleave', hideSegTip);
-
 /* ---------------- 启动 ---------------- */
 switchTab('search');
-refreshAlgorithm();
 refreshStatus();

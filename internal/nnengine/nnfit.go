@@ -220,7 +220,7 @@ func prefilterN() int {
 // rotation-invariant pre-filter over all refs, then the expensive features
 // (mask rotation, sczl expert, polar detail, NN, SC refinement) on the top-N
 // shortlist only.
-func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descriptor) []int {
+func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descriptor) ([]int, []float64) {
 	prefN := prefilterN()
 
 	pref := make([]float64, len(refs))
@@ -257,16 +257,18 @@ func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descripto
 	for j := range outKeep {
 		outKeep[j] = j
 	}
-	insertionSort(outKeep, func(a, b int) bool {
+	// 以神经网络相关度为主排序键（即界面展示的"相似度"），保证展示与顺序一致。
+	sortByScore := func(a, b int) bool {
+		if score[a] != score[b] {
+			return score[a] > score[b]
+		}
 		if pairs[a][0] != pairs[b][0] {
 			return pairs[a][0] > pairs[b][0]
 		}
 		ga, gb := pairs[a][8], pairs[b][8]
-		if ga != gb {
-			return ga > gb
-		}
-		return score[a] > score[b]
-	})
+		return ga > gb
+	}
+	insertionSort(outKeep, sortByScore)
 
 	scTop := 12
 	scBlend := 0.7
@@ -286,24 +288,18 @@ func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descripto
 			j := outKeep[i]
 			score[j] = (1-scBlend)*score[j] + scBlend*scSimFromHists(qHists, keptRefs[j])
 		}
-		insertionSort(outKeep, func(a, b int) bool {
-			if pairs[a][0] != pairs[b][0] {
-				return pairs[a][0] > pairs[b][0]
-			}
-			ga, gb := pairs[a][8], pairs[b][8]
-			if ga != gb {
-				return ga > gb
-			}
-			return score[a] > score[b]
-		})
+		insertionSort(outKeep, sortByScore)
 	}
 
 	out := make([]int, 0, len(refs))
+	scores := make([]float64, 0, len(refs))
 	for _, j := range outKeep {
 		out = append(out, keep[j])
+		scores = append(scores, score[j])
 	}
 	for _, i := range order[nKeep:] {
 		out = append(out, i)
+		scores = append(scores, cheapPref(q, refs[i]))
 	}
-	return out
+	return out, scores
 }

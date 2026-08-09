@@ -102,11 +102,7 @@ func runQuery(args []string) {
 		return
 	}
 	for i, h := range hits {
-		score := 0.0
-		if len(h.Scores) > 0 {
-			score = h.Scores[0]
-		}
-		fmt.Printf("#%d score=%.4f mask=%.4f %s\n", i+1, score, h.MaskScore, h.Name)
+		fmt.Printf("#%d score=%.4f mask=%.4f %s\n", i+1, h.RankScore, h.MaskScore, h.Name)
 	}
 }
 

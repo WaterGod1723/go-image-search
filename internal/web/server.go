@@ -56,23 +56,14 @@ type buildJob struct {
 	Done    int       `json:"done"`
 	Total   int       `json:"total"`
 	Images  int       `json:"images"`
-	Regions int       `json:"regions"`
 	Index   string    `json:"index"`
 	Started time.Time `json:"started"`
 }
 
 // buildRequest 构建索引的请求参数。
 type buildRequest struct {
-	Dir             string  `json:"dir"`
-	Out             string  `json:"out"`
-	ThresholdPct    float64 `json:"thresholdPct"`
-	ThresholdFactor float64 `json:"thresholdFactor"`
-	MinAreaRatio    float64 `json:"minAreaRatio"`
-	MedianFilterK   int     `json:"medianFilterK"`
-	Connectivity    int     `json:"connectivity"`
-	MergeHashDist   int     `json:"mergeHashDist"`
-	MergeColorDist  float64 `json:"mergeColorDist"`
-	NoMerge         bool    `json:"noMerge"`
+	Dir string `json:"dir"`
+	Out string `json:"out"`
 }
 
 // New 创建一个新的 Web 服务器（底层为神经网络引擎）。
@@ -101,16 +92,12 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(sub))))
 	mux.HandleFunc("/", s.handleIndex)
 	mux.HandleFunc("/api/status", s.handleStatus)
-	mux.HandleFunc("/api/algorithm", s.handleAlgorithm)
 	mux.HandleFunc("/api/build", s.handleBuild)
 	mux.HandleFunc("/api/build/status", s.handleBuildStatus)
 	mux.HandleFunc("/api/load", s.handleLoad)
 	mux.HandleFunc("/api/query", s.handleQuery)
 	mux.HandleFunc("/api/images", s.handleImages)
 	mux.HandleFunc("/api/image", s.handleImage)
-	mux.HandleFunc("/api/segments", s.handleSegments)
-	mux.HandleFunc("/api/segments.png", s.handleSegmentsPNG)
-	mux.HandleFunc("/api/segments.map.png", s.handleSegmentsMapPNG)
 	return mux
 }
 
@@ -147,31 +134,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	build := s.build
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"indexPath":  s.opts.IndexPath,
-		"root":       s.opts.Root,
-		"loaded":     loaded,
-		"images":     images,
-		"regions":    images,
-		"algorithm":  "nn",
-		"sczlLoaded": loaded,
-		"build":      build,
+		"indexPath": s.opts.IndexPath,
+		"root":      s.opts.Root,
+		"loaded":    loaded,
+		"images":    images,
+		"build":     build,
 	})
-}
-
-func (s *Server) handleAlgorithm(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodGet {
-		writeJSON(w, http.StatusOK, map[string]string{"algorithm": "nn"})
-		return
-	}
-	var req struct {
-		Algorithm string `json:"algorithm"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	_ = req
-	writeJSON(w, http.StatusOK, map[string]string{"algorithm": "nn"})
 }
 
 func (s *Server) handleBuild(w http.ResponseWriter, r *http.Request) {
@@ -214,7 +182,6 @@ func (s *Server) handleBuild(w http.ResponseWriter, r *http.Request) {
 		job.Done = s.engine.Len()
 		job.Total = s.engine.Len()
 		job.Images = s.engine.Len()
-		job.Regions = s.engine.Len()
 		job.Message = "构建完成"
 		s.mu.Unlock()
 		s.logger.Printf("NN 索引构建完成: %d 张 -> %s", s.engine.Len(), req.Out)
@@ -260,7 +227,7 @@ func (s *Server) handleLoad(w http.ResponseWriter, r *http.Request) {
 	s.opts.IndexPath = p
 	s.mu.Unlock()
 	s.logger.Printf("已加载索引: %s (%d 张)", p, s.engine.Len())
-	writeJSON(w, http.StatusOK, map[string]any{"images": s.engine.Len(), "regions": s.engine.Len()})
+	writeJSON(w, http.StatusOK, map[string]any{"images": s.engine.Len()})
 }
 
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
@@ -310,19 +277,7 @@ func (s *Server) handleImage(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filepath.FromSlash(p))
 }
 
-// handleSegments / handleSegmentsPNG / handleSegmentsMapPNG：旧"区域划分"调试
-// 功能已随算法引擎替换移除，返回明确错误以提示前端。
-func (s *Server) handleSegments(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusBadRequest, map[string]string{"error": "区域划分调试已随旧算法移除，当前引擎为神经网络排序"})
-}
-
-func (s *Server) handleSegmentsPNG(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusBadRequest, map[string]string{"error": "区域划分调试已随旧算法移除，当前引擎为神经网络排序"})
-}
-
-func (s *Server) handleSegmentsMapPNG(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusBadRequest, map[string]string{"error": "区域划分调试已随旧算法移除，当前引擎为神经网络排序"})
-}
+// handleSegments 等旧"区域划分"调试路由已随算法引擎替换移除。
 
 func atoiDefault(s string, def int) int {
 	if v, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {

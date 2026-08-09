@@ -9,18 +9,13 @@ const App = window.go.main.App;
 // Wails 绑定调用统一出错处理：Go 侧返回错误时 Promise reject 的是字符串。
 const api = {
   status: () => App.Status(),
-  getAlgorithm: () => App.GetAlgorithm(),
-  setAlgorithm: a => App.SetAlgorithm(a),
   build: req => App.Build(req),
   buildStatus: () => App.BuildStatus(),
   load: idx => App.Load(idx),
-  queryData: (u, top, md, cw) => App.QueryData(u, top, md, cw),
-  queryPath: (p, top, md, cw) => App.QueryPath(p, top, md, cw),
+  queryData: (u, top) => App.QueryData(u, top),
+  queryPath: (p, top) => App.QueryPath(p, top),
   images: () => App.ImageList(),
   imageData: p => App.ImageDataURI(p),
-  segments: (p, params) => App.Segments(p, params),
-  segmentsPNG: (p, params) => App.SegmentsPNG(p, params),
-  segmentsMapPNG: (p, params) => App.SegmentsMapPNG(p, params),
   pickImage: () => App.PickImage(),
   pickDir: () => App.PickDirectory(),
   pickIndex: () => App.PickIndex(),
@@ -41,7 +36,6 @@ const TITLES = {
   search: ['搜索', '按图像内容检索图片库'],
   library: ['图库', '浏览已索引的图片'],
   index: ['索引', '构建与加载图片索引'],
-  debug: ['调试', '查看图像区域划分'],
 };
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -101,8 +95,7 @@ function fillDatalist(key) {
 
 /* ---------------- 用户输入持久化（localStorage） ---------------- */
 const SETTINGS_KEY = 'gis-settings';
-const SETTING_FIELDS = ['cfg-dir', 'cfg-out', 'cfg-thr', 'cfg-factor', 'cfg-minarea', 'cfg-median', 'cfg-load', 'seg-path', 'seg-thr', 'seg-median', 'color-range', 'maxdist-range'];
-const SETTING_SEGS = ['seg-top', 'seg-conn', 'seg-conn2'];
+const SETTING_FIELDS = ['cfg-dir', 'cfg-out', 'cfg-load'];
 
 function loadSettings() {
   try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}'); } catch (e) { return {}; }
@@ -110,11 +103,6 @@ function loadSettings() {
 function saveSettings() {
   const s = {};
   SETTING_FIELDS.forEach(id => { const el = document.getElementById(id); if (el) s[id] = el.value; });
-  SETTING_SEGS.forEach(id => {
-    const seg = document.getElementById(id);
-    const active = seg && seg.querySelector('button.active');
-    if (active) s[id] = active.dataset.val;
-  });
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); } catch (e) { /* ignore */ }
 }
 function restoreSettings() {
@@ -123,25 +111,10 @@ function restoreSettings() {
     const el = document.getElementById(id);
     if (el && s[id] != null) el.value = s[id];
   });
-  SETTING_SEGS.forEach(id => {
-    const seg = document.getElementById(id);
-    if (!seg || s[id] == null) return;
-    $$('button', seg).forEach(b => b.classList.toggle('active', b.dataset.val === String(s[id])));
-  });
-  // 同步显示值
-  const colorRange = $('#color-range');
-  if (colorRange) $('#color-val').textContent = Number(colorRange.value).toFixed(2);
-  const maxdistRange = $('#maxdist-range');
-  if (maxdistRange) $('#maxdist-val').textContent = maxdistRange.value;
 }
 SETTING_FIELDS.forEach(id => {
   const el = document.getElementById(id);
   if (el) el.addEventListener('change', saveSettings);
-  if (el && el.type === 'range') el.addEventListener('input', saveSettings);
-});
-SETTING_SEGS.forEach(id => {
-  const seg = document.getElementById(id);
-  if (seg) seg.addEventListener('click', () => setTimeout(saveSettings, 0));
 });
 restoreSettings();
 
@@ -155,36 +128,6 @@ function setLastIndex(p) {
     else localStorage.removeItem(LAST_INDEX_KEY);
   } catch (e) { /* ignore */ }
 }
-
-/* ---------------- 检索策略切换 ---------------- */
-let currentAlgo = 'sczl';
-const algoLabels = { region: '区域', sczl: 'SCZL' };
-async function refreshAlgorithm() {
-  try {
-    currentAlgo = await api.getAlgorithm();
-  } catch (e) { /* ignore，使用默认 */ }
-  updateAlgoUI();
-}
-function updateAlgoUI() {
-  $('#algo-label').textContent = algoLabels[currentAlgo] || currentAlgo;
-  $('#algo-toggle').classList.toggle('sczl', currentAlgo === 'sczl');
-  // 同步算法到 body，CSS 据此控制仅适用于某算法的参数显隐
-  document.body.dataset.algo = currentAlgo;
-}
-$('#algo-toggle').addEventListener('click', async () => {
-  const next = currentAlgo === 'region' ? 'sczl' : 'region';
-  try {
-    await api.setAlgorithm(next);
-    currentAlgo = next;
-    updateAlgoUI();
-    resetQueryState();
-    toast(`已切换为 ${algoLabels[next]} 策略`);
-    refreshStatus();
-    loadLibrary();
-  } catch (e) {
-    toast(e);
-  }
-});
 
 /* ---------------- 标签切换 ---------------- */
 function switchTab(name) {
@@ -321,14 +264,6 @@ function fileToDataURL(file) {
 }
 
 /* ---------------- 搜索 ---------------- */
-const colorRange = $('#color-range');
-const maxdistRange = $('#maxdist-range');
-$('#color-val').textContent = Number(colorRange.value).toFixed(2);
-$('#maxdist-val').textContent = maxdistRange.value;
-colorRange.addEventListener('input', () => $('#color-val').textContent = Number(colorRange.value).toFixed(2));
-maxdistRange.addEventListener('input', () => $('#maxdist-val').textContent = maxdistRange.value);
-colorRange.addEventListener('change', () => { if (queryFile || queryPath) doSearch(); });
-maxdistRange.addEventListener('change', () => { if (queryFile || queryPath) doSearch(); });
 $('#seg-top').addEventListener('click', e => {
   const btn = e.target.closest('button');
   if (!btn) return;
@@ -342,8 +277,6 @@ function segVal(segSel) {
 
 async function doSearch() {
   const top = parseInt(segVal('#seg-top'), 10);
-  const maxdist = parseInt(maxdistRange.value, 10);
-  const colorWeight = parseFloat(colorRange.value);
 
   $('#search-busy').hidden = false;
   $('#btn-search').disabled = true;
@@ -352,10 +285,10 @@ async function doSearch() {
   try {
     let data;
     if (queryPath) {
-      data = await api.queryPath(queryPath, top, maxdist, colorWeight);
+      data = await api.queryPath(queryPath, top);
     } else if (queryFile) {
       const dataURL = await fileToDataURL(queryFile);
-      data = await api.queryData(dataURL, top, maxdist, colorWeight);
+      data = await api.queryData(dataURL, top);
     } else {
       return;
     }
@@ -377,7 +310,7 @@ function renderResults(data) {
   const box = $('#results');
   box.innerHTML = '';
   $('#results-empty p').textContent = '暂无结果';
-  $('#results-empty span').textContent = `查询区域 ${data.regions} 个，无匹配图片`;
+  $('#results-empty span').textContent = '无匹配图片';
   if (!data.matches || data.matches.length === 0) {
     $('#results-empty').hidden = false;
     return;
@@ -388,7 +321,6 @@ function renderResults(data) {
 
 function resultCard(m, i) {
   const score = Math.round(m.score * 100);
-  const cover = Math.round(m.cover * 100);
   const el = document.createElement('div');
   el.className = 'card result-card';
   const rel = relOf(m.imageId);
@@ -397,19 +329,13 @@ function resultCard(m, i) {
     '<div class="result-body">' +
       '<div class="result-top"><span class="result-name">' + esc(base(m.imageId)) + '</span><span class="rank">#' + (i + 1) + '</span></div>' +
       '<div class="scorebar"><div style="width:' + score + '%"></div></div>' +
-      '<div class="result-meta">相似度 ' + score + '% · 覆盖 ' + cover + '% · 命中 ' + m.count + ' 区域</div>' +
+      '<div class="result-meta">相似度 ' + score + '%</div>' +
       '<div class="result-actions">' +
         '<button class="copy-btn"><span class="copy-label">复制路径</span></button>' +
         '<button class="copy-btn"><span class="copy-label">复制相对路径</span></button>' +
       '</div>' +
-      '<div class="result-regions">' +
-        (m.regions || []).map(r =>
-          '<div class="rr"><span><span class="dot" style="background:' + esc(r.color) + '"></span>区域 #' + r.regionId + '</span><span>dist ' + r.dist + '</span></div>'
-        ).join('') +
-      '</div>' +
     '</div>';
   const thumb = el.querySelector('.thumb');
-  const src = '';
   // 异步加载本地图片为 data URI
   api.imageData(m.imageId).then(uri => {
     thumb.src = uri;
@@ -501,7 +427,7 @@ function updateBuildUI(job) {
   $('#build-pct').textContent = pct + '%';
   const etaEl = $('#build-eta');
   if (job.state === 'done') {
-    $('#build-label').textContent = '构建完成 · ' + job.images + ' 图像 · ' + job.regions + ' 区域';
+    $('#build-label').textContent = '构建完成 · ' + job.images + ' 图像';
     $('#build-file').textContent = '索引已保存至 ' + job.index;
     etaEl.hidden = true;
   } else if (job.state === 'error') {
@@ -541,11 +467,6 @@ $('#btn-build').addEventListener('click', async () => {
   const body = {
     dir: $('#cfg-dir').value.trim(),
     out: $('#cfg-out').value.trim(),
-    thresholdPct: parseFloat($('#cfg-thr').value),
-    thresholdFactor: parseFloat($('#cfg-factor').value),
-    minAreaRatio: parseFloat($('#cfg-minarea').value),
-    medianFilterK: parseInt($('#cfg-median').value, 10),
-    connectivity: parseInt(segVal('#seg-conn'), 10),
   };
   if (!body.dir) { toast('请输入图像库目录'); return; }
 
@@ -592,7 +513,7 @@ $('#btn-load').addEventListener('click', async () => {
   setBuildBusy(true);
   try {
     const res = await api.load(idx);
-    toast('已加载：' + res.images + ' 图像 / ' + res.regions + ' 区域');
+    toast('已加载：' + res.images + ' 图像');
     if (idx) { saveHistory('index-history', idx); setLastIndex(idx); }
     $('#cfg-load').value = '';
     refreshStatus();
@@ -611,7 +532,6 @@ async function refreshStatus() {
     libRoot = st.root || libRoot;
     $('#st-load').textContent = st.loaded ? '已加载' : '未加载';
     $('#st-images').textContent = st.images;
-    $('#st-regions').textContent = st.regions;
     $('#st-index').textContent = st.indexPath || '-';
     $('#st-root').textContent = st.root || '-';
     if (st.root && !$('#cfg-dir').value.trim()) $('#cfg-dir').value = st.root;
@@ -624,140 +544,6 @@ async function refreshStatus() {
     }
   } catch (e) { /* ignore */ }
 }
-
-/* ---------------- 调试 ---------------- */
-let segParams = null;
-let segLabelMap = null;
-let segRegionsById = new Map();
-
-function currentSegParams() {
-  return {
-    path: $('#seg-path').value.trim(),
-    thresholdPct: parseFloat($('#seg-thr').value),
-    thresholdFactor: 1.0,
-    minAreaRatio: 0.0006,
-    medianFilterK: parseInt($('#seg-median').value, 10),
-    connectivity: parseInt(segVal('#seg-conn2'), 10),
-  };
-}
-
-function refreshSegImage() {
-  if (!segParams) return;
-  api.segmentsPNG(segParams.path, segParams, segVal('#seg-mode'))
-    .then(uri => { $('#seg-img').src = uri; })
-    .catch(() => {});
-}
-
-// 加载标签图（data URI），用于鼠标悬停反查区域。
-async function loadSegLabelMap(params) {
-  const uri = await api.segmentsMapPNG(params.path, params);
-  const img = await new Promise((resolve, reject) => {
-    const i = new Image();
-    i.onload = () => resolve(i);
-    i.onerror = reject;
-    i.src = uri;
-  });
-  const canvas = document.createElement('canvas');
-  canvas.width = img.naturalWidth;
-  canvas.height = img.naturalHeight;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(img, 0, 0);
-  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  return { data: imgData.data, width: canvas.width, height: canvas.height };
-}
-
-function labelAt(map, x, y) {
-  if (!map || x < 0 || y < 0 || x >= map.width || y >= map.height) return 0;
-  const i = (y * map.width + x) * 4;
-  return (map.data[i] << 16) | (map.data[i + 1] << 8) | map.data[i + 2];
-}
-
-function showSegTip(clientX, clientY, html) {
-  const tip = $('#seg-tip');
-  tip.innerHTML = html;
-  tip.hidden = false;
-  const tw = tip.offsetWidth, th = tip.offsetHeight;
-  const vw = window.innerWidth, vh = window.innerHeight;
-  let left = clientX + 14;
-  let top = clientY + 14;
-  if (left + tw > vw - 8) left = clientX - tw - 14;
-  if (top + th > vh - 8) top = clientY - th - 14;
-  tip.style.left = left + 'px';
-  tip.style.top = top + 'px';
-}
-
-function hideSegTip() { $('#seg-tip').hidden = true; }
-
-// 原生「浏览」按钮
-$('#btn-browse-seg').addEventListener('click', async () => {
-  try {
-    const p = await pickImage();
-    if (p) $('#seg-path').value = p;
-  } catch (e) { /* 取消 */ }
-});
-
-$('#btn-seg').addEventListener('click', async () => {
-  segParams = currentSegParams();
-  if (!segParams.path) { toast('请输入图像路径'); return; }
-  $('#seg-busy').hidden = false;
-  $('#btn-seg').disabled = true;
-  try {
-    const [data, labelMap] = await Promise.all([
-      api.segments(segParams.path, segParams),
-      loadSegLabelMap(segParams).catch(() => null),
-    ]);
-    $('#seg-info').textContent = '图像 ' + data.width + '×' + data.height + ' · ' + data.regions.length + ' 个区域';
-    segLabelMap = labelMap;
-    segRegionsById = new Map();
-    data.regions.forEach(r => segRegionsById.set(r.id, r));
-    refreshSegImage();
-    $('#seg-img').hidden = false;
-    $('#seg-mode').hidden = false;
-    const box = $('#seg-regions');
-    box.hidden = false;
-    box.innerHTML = '';
-    data.regions.forEach(r => {
-      const div = document.createElement('div');
-      div.className = 'rr';
-      const tag = r.whole ? '<span class="tag tag-whole">整图辅助</span>' : '';
-      div.innerHTML =
-        '<span><span class="dot" style="background:' + esc(r.color) + '"></span>区域 #' + r.id + tag + '</span>' +
-        '<span>面积 ' + r.area + ' · bbox ' + r.bbox.join(',') + '</span>';
-      box.appendChild(div);
-    });
-  } catch (e) {
-    toast(e);
-  } finally {
-    $('#seg-busy').hidden = true;
-    $('#btn-seg').disabled = false;
-  }
-});
-
-$('#seg-mode').addEventListener('click', e => {
-  const btn = e.target.closest('button');
-  if (!btn || !segParams) return;
-  refreshSegImage();
-});
-
-const segImg = $('#seg-img');
-segImg.addEventListener('mousemove', e => {
-  if (!segLabelMap) return;
-  const rect = segImg.getBoundingClientRect();
-  if (rect.width === 0 || rect.height === 0) return;
-  const nx = Math.floor((e.clientX - rect.left) / rect.width * segLabelMap.width);
-  const ny = Math.floor((e.clientY - rect.top) / rect.height * segLabelMap.height);
-  const id = labelAt(segLabelMap, nx, ny);
-  if (id > 0 && segRegionsById.has(id)) {
-    const r = segRegionsById.get(id);
-    showSegTip(e.clientX, e.clientY,
-      '<span class="dot" style="background:' + esc(r.color) + '"></span>' +
-      '区域 #' + r.id + (r.whole ? ' <span class="tag tag-whole">整图辅助</span>' : '') +
-      ' · 面积 ' + r.area + ' · bbox ' + r.bbox.join(','));
-  } else {
-    hideSegTip();
-  }
-});
-segImg.addEventListener('mouseleave', hideSegTip);
 
 /* ---------------- 索引页原生按钮 ---------------- */
 $('#btn-browse-dir').addEventListener('click', async () => {
@@ -781,7 +567,6 @@ $('#btn-browse-load').addEventListener('click', async () => {
 
 /* ---------------- 启动 ---------------- */
 switchTab('search');
-refreshAlgorithm();
 refreshStatus();
 
 // 自动加载上次使用的索引（库目录字段已由 restoreSettings 还原）。
@@ -790,7 +575,7 @@ refreshStatus();
   if (!p) return;
   try {
     const res = await api.load(p);
-    toast('已恢复上次索引：' + res.images + ' 图像 / ' + res.regions + ' 区域');
+    toast('已恢复上次索引：' + res.images + ' 图像');
   } catch (e) { /* 静默：索引文件可能已移动或删除 */ }
   refreshStatus();
   loadLibrary();

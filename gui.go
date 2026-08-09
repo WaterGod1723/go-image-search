@@ -28,6 +28,9 @@ import (
 //go:embed all:frontend/dist
 var guiAssets embed.FS
 
+//go:embed weights.gob
+var embeddedWeights []byte
+
 // App 桌面 GUI 的后端绑定。通过内嵌 *web.Server 复用其全部操作方法，
 // 前端通过 window.go.main.App.* 调用；原生文件对话框经 Pick* 绑定暴露。
 type App struct {
@@ -58,7 +61,8 @@ func NewApp() *App {
 }
 
 // defaultWeightsPath 返回神经网络权重文件路径：优先 NN_WEIGHTS 环境变量，
-// 其次程序所在目录 / 当前目录的 weights.gob，最后用户配置目录。
+// 其次程序所在目录 / 当前目录的 weights.gob，最后用户配置目录。若外部均
+// 不存在，则将内嵌的 weights.gob 解出到用户配置目录并返回该路径。
 func defaultWeightsPath() string {
 	if v := os.Getenv("NN_WEIGHTS"); v != "" {
 		return v
@@ -73,6 +77,19 @@ func defaultWeightsPath() string {
 	for _, c := range candidates {
 		if _, err := os.Stat(c); err == nil {
 			return c
+		}
+	}
+	if dir, err := os.UserConfigDir(); err == nil && dir != "" {
+		dir = filepath.Join(dir, "go-image-search")
+		if err := os.MkdirAll(dir, 0o755); err == nil {
+			p := filepath.Join(dir, "weights.gob")
+			if _, err := os.Stat(p); err != nil {
+				if err := os.WriteFile(p, embeddedWeights, 0o644); err == nil {
+					return p
+				}
+			} else {
+				return p
+			}
 		}
 	}
 	return "weights.gob"
