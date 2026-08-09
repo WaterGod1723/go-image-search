@@ -505,3 +505,48 @@ func meanStd(s []float64) (mean, std float64) {
 	std = math.Sqrt(ss / float64(len(s)))
 	return
 }
+
+
+// GlobalScoresAll returns, for every index entry, the cheap color-agnostic
+// global similarity (rotation-scanned occupancy + NCC + region + Fourier +
+// radial, same fusion as the coarse phase of Query). SC and HOG are excluded
+// because they are expensive; the caller can fuse this as an extra expert
+// signal per (query, ref) pair without running the full Query.
+func (ix *Index) GlobalScoresAll(q Descriptor, rotSteps int) []float64 {
+	if !q.Valid {
+		return nil
+	}
+	pq := PrepareQuery(q, rotSteps)
+	out := make([]float64, len(ix.Entries))
+	for i := range ix.Entries {
+		out[i] = pq.GlobalScoreOf(ix.Entries[i])
+	}
+	return out
+}
+
+// PreparedQuery holds a query descriptor plus its precomputed rotation copies,
+// so per-reference global similarity can be scored one entry at a time (cheap
+// pre-filter / two-stage search) instead of scanning the whole index.
+type PreparedQuery struct {
+	q       Descriptor
+	occRots [][]float64
+	nccRots [][]float64
+}
+
+// PrepareQuery precomputes a query's rotation copies for occ/NCC matching.
+func PrepareQuery(q Descriptor, rotSteps int) *PreparedQuery {
+	if rotSteps <= 0 {
+		rotSteps = 36
+	}
+	return &PreparedQuery{
+		q:       q,
+		occRots: precomputeOccRots(q.Occupancy64, rotSteps),
+		nccRots: precomputeNCCRots(q.Patch, rotSteps),
+	}
+}
+
+// GlobalScoreOf is the cheap color-agnostic global similarity (occ+ncc+region+
+// Fourier+radial) of this prepared query against one reference descriptor.
+func (pq *PreparedQuery) GlobalScoreOf(e Descriptor) float64 {
+	return globalSimRot(pq.q, e, pq.occRots, pq.nccRots)
+}

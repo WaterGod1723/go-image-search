@@ -48,8 +48,34 @@ type convResult struct {
 
 // NewApp 创建桌面应用后端。
 func NewApp() *App {
-	srv := web.New(web.Options{IndexPath: defaultIndexPath(), Root: ".", Writer: io.Discard})
+	srv := web.New(web.Options{
+		IndexPath:   defaultIndexPath(),
+		Root:        ".",
+		Writer:      io.Discard,
+		WeightsPath: defaultWeightsPath(),
+	})
 	return &App{Server: srv, convParts: make(map[string]chan convResult), convTO: 30 * time.Second}
+}
+
+// defaultWeightsPath 返回神经网络权重文件路径：优先 NN_WEIGHTS 环境变量，
+// 其次程序所在目录 / 当前目录的 weights.gob，最后用户配置目录。
+func defaultWeightsPath() string {
+	if v := os.Getenv("NN_WEIGHTS"); v != "" {
+		return v
+	}
+	candidates := []string{"weights.gob"}
+	if exe, err := os.Executable(); err == nil {
+		candidates = append([]string{filepath.Join(filepath.Dir(exe), "weights.gob")}, candidates...)
+	}
+	if dir, err := os.UserConfigDir(); err == nil && dir != "" {
+		candidates = append(candidates, filepath.Join(dir, "go-image-search", "weights.gob"))
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	return "weights.gob"
 }
 
 // defaultIndexPath 返回跨平台可写的默认索引路径（用户配置目录）。

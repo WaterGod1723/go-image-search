@@ -12,9 +12,6 @@ package imageproc
 import (
 	"image"
 	"image/color"
-
-	"go-image-search/internal/index"
-	"go-image-search/internal/segment"
 )
 
 // 归一化触发与内容带选择阈值。
@@ -47,32 +44,6 @@ func QueryNormalizedVariant(src image.Image) image.Image {
 		return nil
 	}
 	return cropBand(clean, main)
-}
-
-// QueryNormalizedWholeHashes 对查询截图做归一化（去背景 + 提取主体内容带），并返回
-// 归一化内容的整图辅助区域哈希。若触发条件不满足，返回 nil。
-//
-// 归一化内容只贡献整图辅助区域：低分辨率截图的碎片区域划分不可靠（这正是归一化的
-// 原因），而"白底 + 主体图标"的整图低频结构才与图库透明底图标可比。查询侧应把该
-// 结果作为额外的整图级证据，与 QueryVariants 的碎片区域证据合并使用。
-func QueryNormalizedWholeHashes(src image.Image, cfg segment.Config, mergeCfg segment.MergeConfig, grav segment.GravityConfig) []index.RegionHash {
-	n := QueryNormalizedVariant(src)
-	if n == nil {
-		return nil
-	}
-	grav.CombineAlways = true
-	res, out, err := segment.RunDefault(n, cfg, mergeCfg, grav)
-	if err != nil {
-		return nil
-	}
-	hashes := index.RegionHashes(res, out)
-	var whole []index.RegionHash
-	for _, h := range hashes {
-		if h.Global >= 2.5 {
-			whole = append(whole, h)
-		}
-	}
-	return whole
 }
 
 // contentBand 表示一个内容行带（半开区间 [y0,y1)），count 为带内前景像素数。
