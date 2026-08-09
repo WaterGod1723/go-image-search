@@ -65,6 +65,8 @@ recall@1/@3/@5 及 NN miss。排序尾部用 shape-context 精排（默认 SCTOP
 ```
 baseline adaptive : recall@1 = 106/120 (88.3%)   recall@3 = 112/120 (93.3%)   recall@5 = 113/120 (94.2%)
 neural (MLP 93d)  : recall@1 = 111/120 (92.5%)   recall@3 = 117/120 (97.5%)   recall@5 = 119/120 (99.2%)
+  neural mono : recall@1 = 40/43 (93.0%)  @5 = 42/43 (97.7%)   [base @1 = 40/43 (93.0%)]
+  neural color: recall@1 = 71/77 (92.2%)  @5 = 77/77 (100.0%)  [base @1 = 66/77 (85.7%)]
 ```
 - 相对 baseline：recall@1 +4.2pp、recall@3 +4.2pp、recall@5 +5.0pp。
 - 剩余 9 个 @1 miss：2 张 home_work / a-icon-file2（分割受损/特征全面失效难例）；
@@ -151,6 +153,7 @@ $env:NN_ATN="hidden"; .\search_nn.exe . train train_set w.gob 60 0.002  # 注意
       各占一个特征维度（81 维 → 93 维），网络可对每个专家分量单独定价
 - [x] 8000 训练图 + shape-context 精排调参（SCTOP=12/SCBLEND=0.7）
 - [x] 目标指标：新 test_set 上 recall@1 / @3 / @5 达成 92.5% / 97.5% / 99.2%（超 baseline 88.3/93.3/94.2）
+- [x] `runNNEval` 输出 mono/color 拆分统计（灰度查询专门监控，验证注意力/路由假设）
 - [x] **接入 search server**：`/api/search` 启动时加载 `weights.gob`（可用 `NN_WEIGHTS` 覆盖路径），
       优先用 `rankNN`（含 sczl 专家 + shape-context 精排），权重缺失/形状不符则回退 `compositeAdaptive`；
       引用索引变化时自动重建 sczl 专家索引（与 entries 1:1 对齐）。
@@ -190,6 +193,17 @@ input (SE)     : recall@1 = 110/120 (91.7%)   recall@3 = 117/120 (97.5%)   recal
 结论：注意力机制在两个测试集（旧 66 refs 与新 96 refs）上都**没有带来提升**——
 hidden/input 的 @1 均不高于 plain，网络容量不是瓶颈；miss 集只是等量交换
 （各救回 1-2 个、各丢掉 1-2 个）。代码保留（默认 none，`NN_ATN` 可开）。
+
+**mono/color 拆分验证**（`runNNEval` 现输出 mono/color 统计；新 test_set 43 灰度 + 77 彩色查询）：
+```
+               mono@1          color@1
+plain  (none): 40/43 (93.0%)   71/77 (92.2%)   total 111/120 (92.5%)
+hidden (SE) : 40/43 (93.0%)    69/77 (89.6%)   total 109/120 (90.8%)
+input  (SE) : 40/43 (93.0%)    70/77 (90.9%)   total 110/120 (91.7%)
+```
+即使灰度查询占比大幅提高（43/120 ≈ 36%，旧集合仅 ~30% 且灰度 ref 更少），
+三个模型在 mono 查询上 recall **完全一致（40/43）**，注意力既没帮灰度查询，
+其劣势还全部落在彩色查询上——"灰度占比太小掩盖注意力收益"的假设不成立。
 
 ### sczl 子分数特征实验（2026-08-09）
 将单值 sczl 全局融合分拆为 occ/ncc/region/fd/rad 五个子分数作为独立特征维度

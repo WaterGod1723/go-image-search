@@ -947,6 +947,7 @@ func runNNEval(root string, args []string) {
 		img, want string
 		nnRank    []int
 		baseRank  []int
+		mono      bool
 		ok        bool
 	}
 	rows := make([]evalRow, len(entries))
@@ -965,9 +966,13 @@ func runNNEval(root string, args []string) {
 			dumpNNFeat(e.Image, e.Src, q, refs, refNames)
 		}
 		qd := sczl.Extract(img)
-		rows[i] = evalRow{img: e.Image, want: e.Src, nnRank: rankNN(q, refs, m, sczlIx, qd), baseRank: compositeAdaptive(q, refs), ok: true}
+		rows[i] = evalRow{img: e.Image, want: e.Src, mono: q.Mono, nnRank: rankNN(q, refs, m, sczlIx, qd), baseRank: compositeAdaptive(q, refs), ok: true}
 	})
 	total := 0
+	nnMono1, nnColor1 := 0, 0
+	nnMonoN, nnColorN := 0, 0
+	nnMono5, nnColor5 := 0, 0
+	baseMono1, baseColor1 := 0, 0
 	for i := range rows {
 		r := rows[i]
 		if !r.ok {
@@ -998,6 +1003,29 @@ func runNNEval(root string, args []string) {
 		if refNames[r.nnRank[0]] != r.want {
 			nnMisses = append(nnMisses, miss{r.img, r.want, got5})
 		}
+		if r.mono {
+			nnMonoN++
+			if refNames[r.nnRank[0]] == r.want {
+				nnMono1++
+			}
+			if in5 {
+				nnMono5++
+			}
+			if refNames[r.baseRank[0]] == r.want {
+				baseMono1++
+			}
+		} else {
+			nnColorN++
+			if refNames[r.nnRank[0]] == r.want {
+				nnColor1++
+			}
+			if in5 {
+				nnColor5++
+			}
+			if refNames[r.baseRank[0]] == r.want {
+				baseColor1++
+			}
+		}
 		in3 = false
 		in5 = false
 		for idx, ridx := range r.baseRank[:min(5, len(r.baseRank))] {
@@ -1023,6 +1051,10 @@ func runNNEval(root string, args []string) {
 		base1, total, 100*float64(base1)/float64(total), base3, total, 100*float64(base3)/float64(total), base5, total, 100*float64(base5)/float64(total))
 	fmt.Printf("neural (MLP)      : recall@1=%d/%d (%.1f%%)  recall@3=%d/%d (%.1f%%)  recall@5=%d/%d (%.1f%%)\n",
 		nn1, total, 100*float64(nn1)/float64(total), nn3, total, 100*float64(nn3)/float64(total), nn5, total, 100*float64(nn5)/float64(total))
+	fmt.Printf("  neural mono : recall@1=%d/%d (%.1f%%)  @5=%d/%d (%.1f%%)   [base @1=%d/%d (%.1f%%)]\n",
+		nnMono1, nnMonoN, pct(nnMono1, nnMonoN), nnMono5, nnMonoN, pct(nnMono5, nnMonoN), baseMono1, nnMonoN, pct(baseMono1, nnMonoN))
+	fmt.Printf("  neural color: recall@1=%d/%d (%.1f%%)  @5=%d/%d (%.1f%%)   [base @1=%d/%d (%.1f%%)]\n",
+		nnColor1, nnColorN, pct(nnColor1, nnColorN), nnColor5, nnColorN, pct(nnColor5, nnColorN), baseColor1, nnColorN, pct(baseColor1, nnColorN))
 
 	if len(nnMisses) > 0 {
 		fmt.Printf("\n-- NN misses (%d) --\n", len(nnMisses))
