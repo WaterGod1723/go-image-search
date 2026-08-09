@@ -174,11 +174,13 @@ func computePairs(q *Feat, refs []*Feat, qm *queryMasks, sczlSub [][5]float64) [
 		mono = 1
 	}
 	for i, r := range refs {
-		gate := 0.0
-		if hists[i] >= bestHist-eps {
-			gate = 1
+		if !noGm {
+			gate := 0.0
+			if hists[i] >= bestHist-eps {
+				gate = 1
+			}
+			out[i] = append(out[i], gate, mono)
 		}
-		out[i] = append(out[i], gate, mono)
 		out[i] = append(out[i], polarShiftDetail(q, r)...)
 		if sczlSub != nil {
 			out[i] = append(out[i], sczlSub[i][:]...)
@@ -322,16 +324,7 @@ func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descripto
 	for j := range outKeep {
 		outKeep[j] = j
 	}
-	insertionSort(outKeep, func(a, b int) bool {
-		if pairs[a][0] != pairs[b][0] {
-			return pairs[a][0] > pairs[b][0]
-		}
-		ga, gb := pairs[a][8], pairs[b][8]
-		if ga != gb {
-			return ga > gb
-		}
-		return score[a] > score[b]
-	})
+	insertionSort(outKeep, func(a, b int) bool { return rankLess(pairs, score, a, b) })
 
 	// Shortlist shape-context refinement: the neural score handles the broad
 	// ranking; a precise (but expensive) point-match re-checks only the top few
@@ -354,16 +347,7 @@ func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descripto
 			j := outKeep[i]
 			score[j] = (1-scBlend)*score[j] + scBlend*scSimFromHists(qHists, keptRefs[j])
 		}
-		insertionSort(outKeep, func(a, b int) bool {
-			if pairs[a][0] != pairs[b][0] {
-				return pairs[a][0] > pairs[b][0]
-			}
-			ga, gb := pairs[a][8], pairs[b][8]
-			if ga != gb {
-				return ga > gb
-			}
-			return score[a] > score[b]
-		})
+		insertionSort(outKeep, func(a, b int) bool { return rankLess(pairs, score, a, b) })
 	}
 
 	// ---- final: shortlist first (original indices), then the rest ----
@@ -375,6 +359,22 @@ func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descripto
 		out = append(out, i)
 	}
 	return out
+}
+
+// rankLess is the shortlist tie-break used by rankNN: hist primary, then (only
+// when the hand-coded gate/mono biases are enabled, NN_NOGM=0) the gate key at
+// pair index 8, then the neural score.
+func rankLess(pairs [][]float64, score []float64, a, b int) bool {
+	if pairs[a][0] != pairs[b][0] {
+		return pairs[a][0] > pairs[b][0]
+	}
+	if !noGm {
+		ga, gb := pairs[a][8], pairs[b][8]
+		if ga != gb {
+			return ga > gb
+		}
+	}
+	return score[a] > score[b]
 }
 
 type nnSample struct {
@@ -704,6 +704,9 @@ func runRankReport(root string, args []string) {
 		if m, err = loadMLP(args[0]); err != nil {
 			fatal(err)
 		}
+		if err := checkMLPDims(m); err != nil {
+			fatal(err)
+		}
 	} else {
 		m = newMLP(1)
 	}
@@ -930,6 +933,9 @@ func runNNEval(root string, args []string) {
 	}
 	m, err := loadMLP(weightsPath)
 	if err != nil {
+		fatal(err)
+	}
+	if err := checkMLPDims(m); err != nil {
 		fatal(err)
 	}
 	refs, refNames := buildRefIndex(root)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/gob"
+	"fmt"
 	"math"
 	"math/rand"
 	"os"
@@ -18,13 +19,30 @@ import (
 // can condition on query difficulty the way compositeAdaptive does by hand.
 
 const (
+	nnH1 = 96
+	nnH2 = 48
+	nnSE = 24 // hidden-layer SE bottleneck width
+	nnIP = 12 // input (pair-feature) SE bottleneck width
+)
+
+// Input dimension. Default: 93 = 31 pair features + 2*31 query statistics.
+// With NN_NOGM=1 the hand-coded gate/mono inductive-bias dims (pair-feature
+// indices 8,9) are dropped, so the pair block shrinks to 29 and the input to
+// 87 = 29 + 2*29. gob weights are dimension-specific; keep NN_NOGM consistent
+// between training and evaluation.
+var (
 	nnInput = 93 // 31 pair features + 2*31 query statistics
 	nnP     = 31 // pair-feature block at the head of the input (indices 0..30)
-	nnH1    = 96
-	nnH2    = 48
-	nnSE    = 24 // hidden-layer SE bottleneck width
-	nnIP    = 12 // input (pair-feature) SE bottleneck width
+	noGm    = false
 )
+
+func init() {
+	if os.Getenv("NN_NOGM") == "1" {
+		noGm = true
+		nnInput = 87
+		nnP = 29
+	}
+}
 
 // MLP is a 3-layer feed-forward network with ReLU hidden units and a sigmoid
 // output (relevance in [0,1]), plus an optional attention mechanism selected by
@@ -248,6 +266,16 @@ func loadMLP(path string) (*MLP, error) {
 		return nil, err
 	}
 	return m, nil
+}
+
+// checkMLPDims verifies a loaded MLP's input dimension matches the current
+// feature layout (which depends on NN_NOGM); weights trained under a different
+// layout would otherwise be silently mis-sliced or panic.
+func checkMLPDims(m *MLP) error {
+	if m.W1 != nil && len(m.W1) != nnH1*nnInput {
+		return fmt.Errorf("weights input dim %d != current %d (trained with different NN_NOGM?)", len(m.W1)/nnH1, nnInput)
+	}
+	return nil
 }
 
 // ---- training (Adam) ----

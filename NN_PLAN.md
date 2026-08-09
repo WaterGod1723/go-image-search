@@ -215,6 +215,19 @@ input  (SE) : 40/43 (93.0%)    70/77 (90.9%)   total 110/120 (91.7%)
 结论：**sczl 5 子分数拆分有效**——@1 持平，@3 +1、@5 +2（救回 check_box、dashboard），
 train@1 也升（94.8% → 96.1%）。已作为当前 weights.gob（93 维）基线保留。
 
+### gate/mono 归纳偏置消融（2026-08-09，`NN_NOGM=1`）
+去掉 pair 特征 8（gate：ref 是否在直方图家族）与 9（mono：查询是否单色）两个
+手工注入偏置（81→87 维输入，rankNN 的 gate 硬排序键一并移除），同配置重训对比：
+```
+93 维（含 gate/mono）: recall@1 = 111/120 (92.5%)  @3 = 117/120 (97.5%)  @5 = 119/120 (99.2%)
+87 维（去 gate/mono）: recall@1 = 111/120 (92.5%)  @3 = 117/120 (97.5%)  @5 = 118/120 (98.3%)
+  mono/color：93 维 mono 40/43 color 71/77；87 维 mono 40/43 color 71/77（@5 各 -1）
+```
+结论：**去掉 gate/mono 没有收益**——@1/@3 完全持平，@5 反降 1（miss 集交换：
+救回 home_work、丢掉 check_box）。这两个偏置对网络既无害也无明显增益，保留
+（默认 NN_NOGM=0）。`NN_NOGM` 开关保留以便未来 re-ablation；权重维度随
+NN_NOGM 变化，`checkMLPDims` 会在评测时校验一致性。
+
 ### 待办
 - [ ] （可选）SC/HOG 精排进 NN，或新增"实心 vs 描边"密度特征，继续压灰度实心族
       （icon-check/search、icon-save/book、icon-trash/video 这类 mask/SC 都失效的难例）
