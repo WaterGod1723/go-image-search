@@ -152,3 +152,46 @@ func hogDescriptor(gray []float64, mask []bool) []float64 {
 
 	return l2normalize(desc)
 }
+
+// hogRotSim 对 query HOG 做 9 种方向 bin 循环移位，取与 entry 的最佳余弦。
+//
+// 旋转图标后所有梯度方向偏移 θ，unsigned HOG 的 [0,π) 方向 bin 整体循环
+// 移位 k=round(θ·9/π) mod 9。空间 cell 布局也随旋转改变，此处仅移位方向
+// bin（近似），廉价恢复大部分方向判别力。k=0 即原 HOG，非旋转场景不退化。
+//
+// HOG 向量结构：nBlocks×nBlocks blocks，每 block 4 cells × 9 bins = 36 dims，
+// 每 cell 的 9 bins 连续存储，故按每 9 元素一组同步循环移位。
+func hogRotSim(qHOG, eHOG []float64) float64 {
+	if len(qHOG) == 0 || len(eHOG) == 0 || len(qHOG) != len(eHOG) {
+		return cosine(qHOG, eHOG)
+	}
+	best := 0.0
+	for k := 0; k < hogNBins; k++ {
+		shifted := shiftHOGBins(qHOG, k)
+		c := cosine(shifted, eHOG)
+		if c > best {
+			best = c
+		}
+	}
+	return best
+}
+
+// shiftHOGBins 对 HOG 向量按每 hogNBins 个元素一组循环移位 k 位。
+func shiftHOGBins(hog []float64, k int) []float64 {
+	out := make([]float64, len(hog))
+	k = ((k % hogNBins) + hogNBins) % hogNBins
+	for i := 0; i < len(hog); i += hogNBins {
+		end := i + hogNBins
+		if end > len(hog) {
+			end = len(hog)
+		}
+		for j := i; j < end; j++ {
+			src := i + (j-i+k)%hogNBins
+			if src >= len(hog) {
+				src = len(hog) - 1
+			}
+			out[j] = hog[src]
+		}
+	}
+	return l2normalize(out)
+}

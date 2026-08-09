@@ -2,7 +2,9 @@ package sczl
 
 import (
 	"math"
+	"runtime"
 	"sort"
+	"sync"
 )
 
 // search.go SCZL 检索：占据栅格 + FD 全局签名粗排 → SC 匈牙利精排 + HOG 梯度 → 融合打分。
@@ -74,15 +76,25 @@ func hogSim(q, e Descriptor) float64 {
 	return cosine(q.HOG, e.HOG)
 }
 
-// globalSim 全局签名相似度：占据栅格(孔洞填充) + NCC 互相关 + 区域匹配 为主，FD 外轮廓 + 径向为辅。
-// 用于粗排阶段（轻量，不含 SC/匈牙利）。
-func globalSim(q, e Descriptor) float64 {
-	occ := occSim(q, e)
-	ncc := nccSim(q, e)
+// globalSimRot 旋转不变的全局签名相似度，用于粗排阶段。
+// occ/ncc 使用预计算的 query 旋转副本取最佳对齐（旋转不变），
+// 同时取 max(Rmax-旋转扫描, BBox-紧裁剪) 兼顾非旋转精度。
+// reg/fd/rad 本身旋转不变。ang=0 步即原 occSim/nccSim，非旋转场景不退化。
+// 权重偏向旋转不变特征（fd/rad/reg 共 60%），因为查询图（彩色背景上的截图）
+// 的前景提取比图库透明 PNG 噪声更大，occ/ncc 即使旋转扫描也因掩码差异而偏低。
+func globalSimRot(q, e Descriptor, qOccRots, qNCCRots [][]float64) float64 {
+	occ := bestOccDot(qOccRots, e.Occupancy64, q.Occupancy64)
+	if occBBox := cosine(q.OccBBox64, e.OccBBox64); occBBox > occ {
+		occ = occBBox
+	}
+	ncc := bestNCCDot(qNCCRots, e.Patch, q.Patch)
+	if nccBBox := dot(q.PatchBBox, e.PatchBBox); nccBBox > ncc {
+		ncc = nccBBox
+	}
 	reg := regionSim(q, e)
 	fd := cosine(q.Fourier, e.Fourier)
 	rad := histIntersect(q.Radial, e.Radial)
-	return 0.30*occ + 0.30*ncc + 0.15*reg + 0.15*fd + 0.10*rad
+	return 0.20*occ + 0.20*ncc + 0.20*reg + 0.25*fd + 0.15*rad
 }
 
 // regionSim 多区域匈牙利匹配得分 [0,1]。
@@ -100,7 +112,10 @@ func regionSim(q, e Descriptor) float64 {
 		cost[i] = make([]float64, ne)
 		for j := range cost[i] {
 			cos := cosine(qr[i].Occ, er[j].Occ)
-			cdist := math.Hypot(qr[i].NX-er[j].NX, qr[i].NY-er[j].NY)
+			// 旋转不变：质心到图标中心的径向距离差（旋转只改变角度，径向距离不变）。
+			qRad := math.Hypot(qr[i].NX-0.5, qr[i].NY-0.5)
+			eRad := math.Hypot(er[j].NX-0.5, er[j].NY-0.5)
+			cdist := math.Abs(qRad - eRad)
 			if cdist > 1 {
 				cdist = 1
 			}
@@ -140,7 +155,7 @@ type candidate struct {
 
 // rerank 精排候选条目：携带各维度相似度得分，供自适应权重计算与融合打分。
 type rerank struct {
-	idx                         int
+	idx                        int
 	occ, ncc, reg, hog, sc, fd float64
 }
 
@@ -156,32 +171,36 @@ func (ix *Index) Query(q Descriptor, opts Options) []Match {
 		opts.TopK = 5
 	}
 	if opts.OccWeight <= 0 {
-		opts.OccWeight = 0.25
+		opts.OccWeight = 0.20
 	}
 	if opts.NccWeight <= 0 {
-		opts.NccWeight = 0.25
+		opts.NccWeight = 0.20
 	}
 	if opts.RegWeight <= 0 {
-		opts.RegWeight = 0.15
+		opts.RegWeight = 0.20
 	}
 	if opts.HogWeight <= 0 {
-		opts.HogWeight = 0.15
+		opts.HogWeight = 0.10
 	}
 	if opts.SCWeight <= 0 {
 		opts.SCWeight = 0.10
 	}
 	if opts.FDWeight <= 0 {
-		opts.FDWeight = 0.10
+		opts.FDWeight = 0.20
 	}
 	if opts.FDPreFilter <= 0 {
 		opts.FDPreFilter = 200
 	}
-	if opts.FDCut <= 0 {
-		opts.FDCut = 0.4
+	if opts.FDCut < 0 {
+		opts.FDCut = 0.0
 	}
 	if opts.SCMaxPoints <= 0 {
 		opts.SCMaxPoints = 48
 	}
+	if opts.RotSteps <= 0 {
+		opts.RotSteps = 36
+	}
+	rotSteps := opts.RotSteps
 	// 权重归一化。
 	wSum := opts.OccWeight + opts.NccWeight + opts.RegWeight + opts.HogWeight + opts.SCWeight + opts.FDWeight
 	if wSum <= 0 {
@@ -194,18 +213,50 @@ func (ix *Index) Query(q Descriptor, opts Options) []Match {
 	wSC := opts.SCWeight / wSum
 	wFD := opts.FDWeight / wSum
 
-	// 1) 全局签名粗排。
-	cands := make([]candidate, 0, len(ix.Entries))
-	for i := range ix.Entries {
-		g := globalSim(q, ix.Entries[i])
-		if g < opts.FDCut {
+	// 1) 全局签名粗排（并行，旋转不变）。
+	// 预计算 query 的 occ/ncc 旋转副本，粗排时每候选只需点积取最大。
+	nEnt := len(ix.Entries)
+	qOccRots := precomputeOccRots(q.Occupancy64, rotSteps)
+	qNCCRots := precomputeNCCRots(q.Patch, rotSteps)
+	gScores := make([]float64, nEnt)
+	workers := runtime.NumCPU()
+	if workers > nEnt {
+		workers = nEnt
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	var wg sync.WaitGroup
+	chunk := (nEnt + workers - 1) / workers
+	for w := 0; w < workers; w++ {
+		start := w * chunk
+		end := start + chunk
+		if end > nEnt {
+			end = nEnt
+		}
+		if start >= end {
 			continue
 		}
-		cands = append(cands, candidate{idx: i, g: g})
+		wg.Add(1)
+		go func(s, e int) {
+			defer wg.Done()
+			for i := s; i < e; i++ {
+				gScores[i] = globalSimRot(q, ix.Entries[i], qOccRots, qNCCRots)
+			}
+		}(start, end)
+	}
+	wg.Wait()
+
+	cands := make([]candidate, 0, nEnt)
+	for i := 0; i < nEnt; i++ {
+		if gScores[i] < opts.FDCut {
+			continue
+		}
+		cands = append(cands, candidate{idx: i, g: gScores[i]})
 	}
 	if len(cands) == 0 {
-		for i := range ix.Entries {
-			cands = append(cands, candidate{idx: i, g: globalSim(q, ix.Entries[i])})
+		for i := 0; i < nEnt; i++ {
+			cands = append(cands, candidate{idx: i, g: gScores[i]})
 		}
 	}
 	sort.Slice(cands, func(a, b int) bool { return cands[a].g > cands[b].g })
@@ -213,27 +264,57 @@ func (ix *Index) Query(q Descriptor, opts Options) []Match {
 		cands = cands[:opts.FDPreFilter]
 	}
 
-	// 2) 精排：占据栅格 + NCC + 区域匹配 + HOG + SC + FD。
-	//    先收集各候选的 6 维得分，再按自适应权重（若启用）融合打分。
-	reranks := make([]rerank, 0, len(cands))
-	for _, c := range cands {
-		e := ix.Entries[c.idx]
-		occ := occSim(q, e)
-		ncc := nccSim(q, e)
-		reg := regionSim(q, e)
-		hog := hogSim(q, e)
-		scSimVal := 0.0
-		if len(q.SC) > 0 && len(e.SC) > 0 && q.Solidity >= scSolidityThr && e.Solidity >= scSolidityThr {
-			cost := scMatchCost(q.SC, e.SC, opts.SCMaxPoints)
-			if cost != nil {
-				assign := hungarian(cost)
-				scSimVal = scSimilarity(cost, assign)
-			}
-		}
-		reranks = append(reranks, rerank{
-			idx: c.idx, occ: occ, ncc: ncc, reg: reg, hog: hog, sc: scSimVal, fd: c.g,
-		})
+	// 2) 精排（并行）：占据栅格 + NCC + 区域匹配 + HOG + SC + FD。
+	//    每候选独立计算 6 维得分，按索引写入预分配数组无竞争。
+	//    最重的 scRotSim（18 步旋转+匈牙利）和 maskRotSim（18 步旋转 cosine）并行后
+	//    吞吐量随 CPU 核数线性提升。
+	//    qNCCRots 已在粗排前预计算（与粗排共用）。
+	nCand := len(cands)
+	reranks := make([]rerank, nCand)
+	workers2 := workers
+	if workers2 > nCand {
+		workers2 = nCand
 	}
+	if workers2 < 1 {
+		workers2 = 1
+	}
+	chunk2 := (nCand + workers2 - 1) / workers2
+	for w := 0; w < workers2; w++ {
+		start := w * chunk2
+		end := start + chunk2
+		if end > nCand {
+			end = nCand
+		}
+		if start >= end {
+			continue
+		}
+		wg.Add(1)
+		go func(s, e int) {
+			defer wg.Done()
+			for k := s; k < e; k++ {
+				c := cands[k]
+				entry := ix.Entries[c.idx]
+				// occ 维度：取 max(Rmax-旋转扫描, BBox-紧裁剪直接匹配)。
+				occ := maskRotSim(q.Occupancy64, entry.Occupancy64, rotSteps)
+				if occBBox := cosine(q.OccBBox64, entry.OccBBox64); occBBox > occ {
+					occ = occBBox
+				}
+				// ncc 维度：取 max(Rmax-旋转扫描, BBox-紧裁剪直接匹配)。
+				ncc := bestNCCDot(qNCCRots, entry.Patch, q.Patch)
+				if nccBBox := dot(q.PatchBBox, entry.PatchBBox); nccBBox > ncc {
+					ncc = nccBBox
+				}
+				reg := regionSim(q, entry)
+				hog := hogRotSim(q.HOG, entry.HOG)
+				scSimVal := scRotSim(q, entry, opts.SCMaxPoints, rotSteps)
+				fdSim := cosine(q.Fourier, entry.Fourier)
+				reranks[k] = rerank{
+					idx: c.idx, occ: occ, ncc: ncc, reg: reg, hog: hog, sc: scSimVal, fd: fdSim,
+				}
+			}
+		}(start, end)
+	}
+	wg.Wait()
 
 	// 融合权重：启用自适应时按候选集各维度得分分布动态计算，否则用固定先验。
 	awOcc, awNCC, awReg, awHOG, awSC, awFD := wOcc, wNCC, wReg, wHOG, wSC, wFD

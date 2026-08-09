@@ -3,6 +3,7 @@ package sczl
 import (
 	"image"
 	"image/color"
+	"math"
 	"sort"
 )
 
@@ -13,7 +14,7 @@ import (
 
 // fgConfig 前景提取参数。
 type fgConfig struct {
-	bgTol    float64 // 泛洪背景颜色容差（0~255 欧氏距离，仅在不透明截图路径生效）
+	bgTol     float64 // 泛洪背景颜色容差（0~255 欧氏距离，仅在不透明截图路径生效）
 	noiseFrac float64 // 噪声碎片阈值（相对图像面积），丢弃小于此面积的连通域
 }
 
@@ -495,4 +496,93 @@ func connectedComponents(m fgMask) ([]int, []component) {
 		}
 	}
 	return labels, comps
+}
+
+// fgCentroid 返回前景像素的质心（像素中心坐标系，即 (x+0.5, y+0.5)）。
+// 与 Rmax 计算、轮廓射线追踪使用的同一坐标系，避免像素左上角/中心的 0.5 偏差
+// 导致归一化后轮廓点超出 [0,1]^2。若前景为空返回 (0,0)。
+func fgCentroid(m fgMask) (cx, cy float64) {
+	var sx, sy float64
+	n := 0
+	for y := 0; y < m.h; y++ {
+		for x := 0; x < m.w; x++ {
+			if m.cell[y*m.w+x] {
+				sx += float64(x) + 0.5
+				sy += float64(y) + 0.5
+				n++
+			}
+		}
+	}
+	if n == 0 {
+		return 0, 0
+	}
+	return sx / float64(n), sy / float64(n)
+}
+
+// radialPercentile 返回前景像素到质心距离的 p 分位数（像素单位）。
+// 用于构建旋转不变的归一化尺度基准（如 R98：98% 像素到此线内）。
+func radialPercentile(m fgMask, cx, cy float64, p float64) float64 {
+	if p <= 0 {
+		p = 0.98
+	}
+	rs := make([]float64, 0, 256)
+	for y := 0; y < m.h; y++ {
+		for x := 0; x < m.w; x++ {
+			if m.cell[y*m.w+x] {
+				dx, dy := float64(x)-cx, float64(y)-cy
+				rs = append(rs, math.Sqrt(dx*dx+dy*dy))
+			}
+		}
+	}
+	if len(rs) == 0 {
+		return 0
+	}
+	sort.Float64s(rs)
+	idx := int(float64(len(rs)-1) * p)
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(rs) {
+		idx = len(rs) - 1
+	}
+	return rs[idx]
+}
+
+// makeNormFrame 从前景掩码构建归一化框架：质心 + Rmax*2.02 正方形。
+// Rmax = 前景像素中心到质心的最大径向距离（像素中心按 (x+0.5, y+0.5) 计算，与射线追踪的子像素精度对齐）。
+// 边长 = 2*Rmax*1.01 = Rmax*2.02，给旋转/插值/像素中心偏差留 1% 边距，保证最外围的像素
+// 无论朝哪个方向都完整落入正方形内。
+//
+// 为何不用 bbox 或 R98：
+//   - bbox（min/max）随旋转扭曲（长方形变斜 → 宽高变），非旋转不变；
+//   - R98 对实心紧凑图（如 home_work 带一个大"圆"）可能把轮廓内凹当噪声丢掉，
+//     导致 query/lib 尺度错位（尤其一张带边框另一张没有）。
+//
+// Rmax 虽然对单个离群噪点敏感，但 trimTextBands/连通域阈值已在 fg 阶段清走噪点。
+func makeNormFrame(fg fgMask) (frame normFrame, ok bool) {
+	cx, cy := fgCentroid(fg)
+	rmax := 0.0
+	n := 0
+	for y := 0; y < fg.h; y++ {
+		for x := 0; x < fg.w; x++ {
+			if fg.cell[y*fg.w+x] {
+				n++
+				// 像素中心坐标（x+0.5, y+0.5），与射线追踪的子像素 lastX/lastY 对齐。
+				dx := (float64(x) + 0.5) - cx
+				dy := (float64(y) + 0.5) - cy
+				d := math.Sqrt(dx*dx + dy*dy)
+				if d > rmax {
+					rmax = d
+				}
+			}
+		}
+	}
+	if n == 0 || rmax <= 0 {
+		return normFrame{}, false
+	}
+	frame.CX = cx
+	frame.CY = cy
+	// half = rmax*1.01 → scale = rmax*2.02。1% 应对射线 step=0.5 的最后一步超出（最多 0.5 像素级）。
+	frame.Scale = rmax * 2.02
+	return frame, true
 }

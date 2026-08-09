@@ -158,3 +158,64 @@ func scSimilarity(cost [][]float64, assign []int) float64 {
 	}
 	return sim
 }
+
+// scRotSim 旋转 query 点云多个角度，每步重算 SC 直方图并与 entry SC 匈牙利匹配，
+// 取最佳（最高）相似度。这样 SC 维度具备旋转不变性。
+//
+// 旋转只发生在 query 侧（旋转其 SCPoints），entry SC 预计算不动。
+// ang=0 那步即原 SC 匹配，故非旋转场景不会退化；旋转场景取最佳对齐恢复判别力。
+// entry 侧的 subsample 每次结果相同，这里预计算一次复用，避免重复采样。
+func scRotSim(q Descriptor, e Descriptor, maxPts, steps int) float64 {
+	if len(q.SCPoints) == 0 || len(e.SC) == 0 {
+		return 0
+	}
+	if q.Solidity < scSolidityThr || e.Solidity < scSolidityThr {
+		return 0
+	}
+	if steps <= 1 {
+		// 退化：不旋转，直接原匹配。
+		cost := scMatchCost(q.SC, e.SC, maxPts)
+		if cost == nil {
+			return 0
+		}
+		return scSimilarity(cost, hungarian(cost))
+	}
+	eSub := subsampleSC(e.SC, maxPts)
+	if len(eSub) == 0 {
+		return 0
+	}
+	best := 0.0
+	for s := 0; s < steps; s++ {
+		ang := 2 * math.Pi * float64(s) / float64(steps)
+		rotated := rotatePoints(q.SCPoints, ang)
+		qSC := computeSC(rotated)
+		qSub := subsampleSC(qSC, maxPts)
+		if len(qSub) == 0 {
+			continue
+		}
+		cost := make([][]float64, len(qSub))
+		for i := range cost {
+			cost[i] = make([]float64, len(eSub))
+			for j := range cost[i] {
+				cost[i][j] = scChiSquare(qSub[i], eSub[j])
+			}
+		}
+		sim := scSimilarity(cost, hungarian(cost))
+		if sim > best {
+			best = sim
+		}
+	}
+	return best
+}
+
+// rotatePoints 将归一化点集绕中心 (0.5, 0.5) 旋转 ang 弧度。
+func rotatePoints(pts []Point, ang float64) []Point {
+	cs, sn := math.Cos(ang), math.Sin(ang)
+	const cx, cy = 0.5, 0.5
+	out := make([]Point, len(pts))
+	for i, p := range pts {
+		dx, dy := p.X-cx, p.Y-cy
+		out[i] = Point{X: cx + dx*cs - dy*sn, Y: cy + dx*sn + dy*cs}
+	}
+	return out
+}

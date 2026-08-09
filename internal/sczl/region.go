@@ -26,7 +26,8 @@ const regionOccBins = 8
 
 // extractRegions 对前景掩码做连通域划分，返回每个有效区域的描述子。
 // 噪声阈值相对最大连通域，避免大画布小线稿被全量丢弃；同时保留下限防止碎片噪声。
-func extractRegions(fg fgMask, bbox image.Rectangle) []RegionDesc {
+// 跨图旋转不变：NX/NY 用 normFrame（质心+R98尺度）归一化，而非 bbox。
+func extractRegions(fg fgMask, frame normFrame) []RegionDesc {
 	labels, comps := connectedComponents(fg)
 	if len(comps) == 0 {
 		return nil
@@ -52,7 +53,10 @@ func extractRegions(fg fgMask, bbox image.Rectangle) []RegionDesc {
 		keep[0] = true
 	}
 	// 单遍扫描累加各保留区域的质心。
-	type acc struct{ sx, sy float64; n int }
+	type acc struct {
+		sx, sy float64
+		n      int
+	}
 	stats := make(map[int]acc, len(keep))
 	for y := 0; y < fg.h; y++ {
 		for x := 0; x < fg.w; x++ {
@@ -91,14 +95,11 @@ func extractRegions(fg fgMask, bbox image.Rectangle) []RegionDesc {
 		if bh > 0 {
 			aspect = float64(bw) / float64(bh)
 		}
-		// 质心归一化到 icon bbox [0,1]。
-		nx, ny := 0.5, 0.5
-		if bbox.Dx() > 0 {
-			nx = (cx - float64(bbox.Min.X)) / float64(bbox.Dx())
-		}
-		if bbox.Dy() > 0 {
-			ny = (cy - float64(bbox.Min.Y)) / float64(bbox.Dy())
-		}
+		// 质心归一化：用 frame 框架 → 质心为 (0.5,0.5)，scale 半边长=0.5。
+		// 旋转后 frame 不变 → NX/NY 对区域相对质心的径向距离保持不变，search.go 中
+		// regionSim 已改用径向距离 |qN - eN|（对旋转方向完全不敏感）。
+		pt := normalizePixelToFrame(cx, cy, frame)
+		nx, ny := pt.X, pt.Y
 		regs = append(regs, RegionDesc{
 			Occ:    occ,
 			Area:   c.area,

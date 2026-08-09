@@ -1,17 +1,65 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+# ---- 检测系统工具链 ----
+is_wsl=0
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) ;;                # Git Bash: 原生 Windows 工具链
+  *)
+    if uname -r | grep -qi microsoft; then # WSL
+      is_wsl=1
+    fi
+    ;;
+esac
+
+# ---- 定位 go：支持原生 go 与 Windows 的 go.exe ----
+GO_CMD="$(command -v go 2>/dev/null || command -v go.exe 2>/dev/null || true)"
+if [ -z "$GO_CMD" ]; then
+  echo "错误: 未找到 golang，请先安装 Go 并加入 PATH。"
+  exit 1
+fi
+echo "使用 Go: $GO_CMD"
+
+# ---- 在 PATH 中加入 GOPATH/bin（含 Windows 路径转 WSL 挂载路径）----
+export GOSUMDB=off
+gopath="$( "$GO_CMD" env GOPATH 2>/dev/null || true )"
+if [ -n "$gopath" ]; then
+  gopath="${gopath//\\//}"                       # C:\Users\x -> C:/Users/x
+  if [ "$is_wsl" = 1 ] && echo "$gopath" | grep -qE '^[A-Za-z]:/'; then
+    drive="$(printf '%s' "$gopath" | cut -c1)"
+    gopath="/mnt/${drive,,}${gopath#?:}"          # C:/Users/x -> /mnt/c/Users/x
+  fi
+  export PATH="$PATH:$gopath/bin"
+fi
+
 cd "$(dirname "$0")"
 
-export PATH="$PATH:$(go env GOPATH)/bin"
-export GOSUMDB=off
-
 NAME="go-image-search"
-GOOS="$(go env GOOS)"
+GOOS="$("$GO_CMD" env GOOS)"
 
 # 将仓库根目录的图标（git 追踪）同步到 Wails 读取的 build/appicon.png
 if [[ -f "$NAME.png" ]]; then
   cp "$NAME.png" build/appicon.png
 fi
+
+# ---- 前端依赖 ----
+if command -v npm >/dev/null 2>&1; then
+  echo "==> 安装前端依赖 ..."
+  ( cd frontend && npm install ) || { echo "错误: 前端依赖安装失败。"; exit 1; }
+else
+  echo "警告: 未找到 npm，将跳过前端构建。"
+fi
+
+# ---- 安装/核对 wails CLI ----
+echo "==> 安装/核对 wails CLI ..."
+"$GO_CMD" install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0 || true
+
+WEXE="$(command -v wails 2>/dev/null || command -v wails.exe 2>/dev/null || true)"
+if [ -z "$WEXE" ]; then
+  echo "错误: 找不到 wails，请检查 GOPATH/bin 是否在 PATH。"
+  exit 1
+fi
+echo "使用 wails: $WEXE"
 
 # wails build 输出目录
 OUT_DIR="build/bin"
@@ -22,7 +70,7 @@ if [[ "${1:-}" == "all" ]]; then
   PLATFORMS="darwin/arm64 darwin/amd64 windows/amd64"
 else
   TARGET_DIR="."
-  PLATFORMS="$(go env GOOS)/$(go env GOARCH)"
+  PLATFORMS="$("$GO_CMD" env GOOS)/$("$GO_CMD" env GOARCH)"
 fi
 
 mkdir -p "$TARGET_DIR"
@@ -39,7 +87,7 @@ for plat in $PLATFORMS; do
 
   echo "==> wails build ($plat)"
   set +e
-  wails build -tags wails -platform "$plat" 2>&1 | tail -40
+  "$WEXE" build -tags wails -platform "$plat" 2>&1 | tail -40
   exit_code=${PIPESTATUS[0]}
   set -e
   if [[ $exit_code -ne 0 ]]; then

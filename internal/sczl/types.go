@@ -37,6 +37,13 @@ type Descriptor struct {
 	// （query 截图 vs 图库原图的颜色差异不再破坏匹配）。
 	Patch []float64
 
+	// BBox 紧裁剪备份（非旋转精确匹配）：用轴对齐 bbox 紧裁剪到 64×64，
+	// 内容填满整个栅格（无空白稀释），对非旋转变体匹配精度更高。
+	// 搜索时 Occ/NCC 取 max(Rmax-旋转扫描, BBox-直接匹配)，
+	// 旋转场景 Rmax 赢，非旋转场景 BBox 赢，无需决策树判断。
+	OccBBox64 []float64 // bbox 紧裁剪 64×64 软占据（L2 归一化）
+	PatchBBox []float64 // bbox 紧裁剪 NCC 模板（去均值+L2）
+
 	// HOG 梯度方向直方图：捕捉边缘方向的空间分布，天然对填充色/背景色不变
 	// （仅边界处梯度显著，填充色差异不影响）。替代脆弱的 LBP。
 	HOG []float64
@@ -50,8 +57,8 @@ type Descriptor struct {
 	Solidity float64
 
 	// 辅助元信息。
-	Area int
-	BBox image.Rectangle
+	Area  int
+	BBox  image.Rectangle
 	Valid bool
 }
 
@@ -77,6 +84,12 @@ type Options struct {
 	FDCut       float64 // 全局相似度截断（低于此值直接淘汰），<=0 取 0.4
 	SCMaxPoints int     // SC 匹配时每侧采样点数上限（控制匈牙利规模），<=0 取 48
 
+	// RotSteps 旋转扫描步数（occ 软掩码 + SC 点云），均匀覆盖 [0, 2π)。
+	// <=0 取 18（每 20°）；=1 时 ang=0 等效关闭旋转扫描（回退原旋转敏感行为）。
+	// 旋转只发生在 query 侧（旋转其 occ64 / SCPoints），参考侧不动。
+	// ang=0 那步即原匹配，故非旋转场景不会退化；旋转场景取最佳对齐恢复判别力。
+	RotSteps int
+
 	// 自适应权重：基于 query 在精排候选集上的各维度得分分布动态调整，
 	// 而非写死 OccWeight..FDWeight。某维度"头部与主体分离越明显"
 	// （top1 显著高于 top2..topK 均值）说明对当前 query 区分度越强，给更高权重。
@@ -93,16 +106,17 @@ type Options struct {
 // DefaultOptions 推荐默认参数。
 func DefaultOptions() Options {
 	return Options{
-		TopK:        5,
-		OccWeight:   0.25,
-		NccWeight:   0.25,
-		RegWeight:   0.15,
-		HogWeight:   0.15,
-		SCWeight:    0.10,
-		FDWeight:    0.10,
-		FDPreFilter: 200,
-		FDCut:       0.4,
-		SCMaxPoints: 48,
+		TopK:          5,
+		OccWeight:     0.20,
+		NccWeight:     0.20,
+		RegWeight:     0.20,
+		HogWeight:     0.10,
+		SCWeight:      0.10,
+		FDWeight:      0.20,
+		FDPreFilter:   200,
+		FDCut:         0.0,
+		SCMaxPoints:   48,
+		RotSteps:      36,
 		Adaptive:      true,
 		AdaptiveAlpha: 0.5,
 		AdaptiveTemp:  1.0,
@@ -136,3 +150,10 @@ const (
 	// fillThr 实度低于此值时对占据栅格做孔洞填充（碎片化/镂空图标聚合）。
 	fillThr = 0.5
 )
+
+// normFrame 旋转不变的归一化框架：质心为原点，scale 为尺度基准。
+// 旋转后质心不变、距离不变 → frame 不变，使所有子描述子对旋转对齐一致。
+type normFrame struct {
+	CX, CY float64 // 前景质心（像素坐标）
+	Scale  float64 // 归一化正方形边长（像素），R98*2.4 保险覆盖旋转后外接正方形
+}
