@@ -83,6 +83,15 @@ func hogSim(q, e Descriptor) float64 {
 // 权重偏向旋转不变特征（fd/rad/reg 共 60%），因为查询图（彩色背景上的截图）
 // 的前景提取比图库透明 PNG 噪声更大，occ/ncc 即使旋转扫描也因掩码差异而偏低。
 func globalSimRot(q, e Descriptor, qOccRots, qNCCRots [][]float64) float64 {
+	sub := globalSubs(q, e, qOccRots, qNCCRots)
+	return 0.20*sub[0] + 0.20*sub[1] + 0.20*sub[2] + 0.25*sub[3] + 0.15*sub[4]
+}
+
+// globalSubs returns the five color-agnostic global sub-scores separately, in
+// fixed order: occ, ncc, region, Fourier, radial. Used both to fuse the
+// coarse-phase score and to feed the NN fusion network one expert dimension at
+// a time (instead of a single blended number).
+func globalSubs(q, e Descriptor, qOccRots, qNCCRots [][]float64) [5]float64 {
 	occ := bestOccDot(qOccRots, e.Occupancy64, q.Occupancy64)
 	if occBBox := cosine(q.OccBBox64, e.OccBBox64); occBBox > occ {
 		occ = occBBox
@@ -94,7 +103,7 @@ func globalSimRot(q, e Descriptor, qOccRots, qNCCRots [][]float64) float64 {
 	reg := regionSim(q, e)
 	fd := cosine(q.Fourier, e.Fourier)
 	rad := histIntersect(q.Radial, e.Radial)
-	return 0.20*occ + 0.20*ncc + 0.20*reg + 0.25*fd + 0.15*rad
+	return [5]float64{occ, ncc, reg, fd, rad}
 }
 
 // regionSim 多区域匈牙利匹配得分 [0,1]。
@@ -506,7 +515,6 @@ func meanStd(s []float64) (mean, std float64) {
 	return
 }
 
-
 // GlobalScoresAll returns, for every index entry, the cheap color-agnostic
 // global similarity (rotation-scanned occupancy + NCC + region + Fourier +
 // radial, same fusion as the coarse phase of Query). SC and HOG are excluded
@@ -520,6 +528,22 @@ func (ix *Index) GlobalScoresAll(q Descriptor, rotSteps int) []float64 {
 	out := make([]float64, len(ix.Entries))
 	for i := range ix.Entries {
 		out[i] = pq.GlobalScoreOf(ix.Entries[i])
+	}
+	return out
+}
+
+// SubScoresAll returns, for every index entry, the five cheap color-agnostic
+// global sub-scores separately (occ, ncc, region, Fourier, radial), so a fusion
+// model can weigh each expert dimension on its own instead of the blended
+// GlobalScoresAll number.
+func (ix *Index) SubScoresAll(q Descriptor, rotSteps int) [][5]float64 {
+	if !q.Valid {
+		return nil
+	}
+	pq := PrepareQuery(q, rotSteps)
+	out := make([][5]float64, len(ix.Entries))
+	for i := range ix.Entries {
+		out[i] = pq.GlobalSubScoresOf(ix.Entries[i])
 	}
 	return out
 }
@@ -549,4 +573,11 @@ func PrepareQuery(q Descriptor, rotSteps int) *PreparedQuery {
 // Fourier+radial) of this prepared query against one reference descriptor.
 func (pq *PreparedQuery) GlobalScoreOf(e Descriptor) float64 {
 	return globalSimRot(pq.q, e, pq.occRots, pq.nccRots)
+}
+
+// GlobalSubScoresOf returns the five cheap color-agnostic global sub-scores of
+// this prepared query against one reference descriptor, in fixed order:
+// occ, ncc, region, Fourier, radial.
+func (pq *PreparedQuery) GlobalSubScoresOf(e Descriptor) [5]float64 {
+	return globalSubs(pq.q, e, pq.occRots, pq.nccRots)
 }

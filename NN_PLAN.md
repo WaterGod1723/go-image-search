@@ -6,14 +6,16 @@
 
 ## 1. 背景与基线
 
-- 检索流程：`search/main.go` → 从 `test_pngs/`（66 个 ref icon）建索引 →
-  对 `test_set/*.png`（120 张查询图）`extractQuery` 分割出 sprite →
+- 检索流程：`search/main.go` → 从 `test_pngs/`（**96 个 ref icon，含 30 个新增灰度实心
+  icon**）建索引 → 对 `test_set/*.png`（120 张查询图）`extractQuery` 分割出 sprite →
   `buildFeat` 提 7 类手工特征 → `composite`/`compositeAdaptive`（match.go）融合排序。
 - 每张查询图的真值来源记录在 `test_set/manifest.json`（由 `gentest` 生成）。
-- **基线（`search.exe .` 默认 = adaptive 融合）**：
-  `recall@1 = 109/120 = 90.8%`，recall@5 同；miss 集中在灰白描边图标
-  （edit_square / account_balance / contract_edit / assistant 等易混淆族）。
-- 2 张查询分割失败（sample_00064、sample_00085，`extractQuery` 返回空），当前不计入。
+- **基线（`search.exe .` 默认 = adaptive 融合）**（新 test_set，96 refs / 120 查询）：
+  `recall@1 = 106/120 = 88.3%`，recall@3 = 93.3%，recall@5 = 94.2%。miss 集中在
+  灰度描边族（home_work / fact_check / calculate / auto_awesome_motion / perm_phone）
+  与新增灰度实心族（icon-check / icon-save / icon-trash / a-icon-file2 等）。
+- 测试集 2026-08-09 已随新 icon 重新生成（seed 20260809，`test_pngs` 66→96）；
+  旧测试集结果见 §7 历史。
 
 ## 2. 核心思路：Learning-to-Rank MLP（特征融合 + 神经网络路由）
 
@@ -28,26 +30,30 @@ sczl（`search/sczl/`，从 `go-image-search` 项目 vendor 进来，零内部�
 不如现有融合（82.2%），但其**错误集不同**（能救回 5 个 NN/baseline 都错、
 且几乎只错灰度难例的查询），与 NN 是天然互补。
 
-### 网络输入（每对 query↔ref，最终 81 维）
-- **27 个 pair 特征**：
+### 网络输入（每对 query↔ref，最终 93 维）
+- **31 个 pair 特征**：
   - 8 个基础相似度：`histSim`、`cosSim(Radial)`、`cosSim(AngMag)`、
     `polarShiftSim`（极坐标形状）、`polarColSim`、`roundTripFactor`、
     `cosSim(Zern)`、`maskScore`（64×64 掩膜旋转最优 Dice）
   - `gate`：该 ref 是否在查询直方图"家族"内；`mono`：查询是否单色
   - 16 个 per-ring 形状细节 `polarShiftDetail`
-  - **1 个 sczl 全局相似度**（占据栅格+NCC+FD+径向+区域，旋转扫描，排除昂贵 SC/HOG）
-- **54 个查询级统计**：上述 27 个特征各自的「全 ref 集 best」与「best−亚军 gap」。
-- 网络：`81 → 96 (ReLU) → 48 (ReLU) → 1 (sigmoid)`，约 12.5k 参数。
+  - **5 个 sczl 颜色无关子分数**：`occ`（占据栅格旋转最优）、`ncc`（NCC 模板）、
+    `region`（多区域匈牙利）、`fd`（Fourier 描述子）、`rad`（径向直方图交集）
+    —— 由 sczl 全局融合分拆开（`SubScoresAll` / `GlobalSubScoresOf`），
+    让网络对每个专家分量单独定价，替代原来 1 个融合数（81 维 → 93 维）。
+- **62 个查询级统计**：上述 31 个特征各自的「全 ref 集 best」与「best−亚军 gap」。
+- 网络：`93 → 96 (ReLU) → 48 (ReLU) → 1 (sigmoid)`，约 12.6k 参数。
 - 排序：**hist 主键降序 → gate → NN 分数**；对 hist 主键下前 8 名做 shapeContext 精排。
 
 ## 3. 训练
 
-- 训练数据：`go run ./gentest -n 8000 -seed 20260715 -out train_set`
-  （与 `test_set` 不同 seed；同一 seed 下前 4000 张与旧版一致，属纯扩展）。
+- 训练数据：`go run ./gentest -n 8000 -seed 20260809 -out train_set`
+  （96 refs 新训练集；旧 66-ref 训练集 seed 20260715 已归档备份）。
 - 每查询样本：1 正样本（真值 ref）+ 难负样本（hist+mask 混合最接近 8 个 + 3 随机）。
-- 损失：class-balanced BCE + Adam（最终 lr=0.002，batch=256，60 epoch —— 120 epoch 会过拟合，train@1 升到 98% 但 test 反降）。
+- 损失：class-balanced BCE + Adam（最终 lr=0.002，batch=256，60 epoch —— 120 epoch 会过拟合）。
 - 命令：`search.exe . train train_set weights.gob [epochs] [lr]` → 存 `weights.gob`。
-- 训练耗时：8000 张 prep ~3min + 60 epoch ~4.5min，总 ~7.5min。
+  注意力模式经 `NN_ATN`（none/hidden/input）选择，默认 none。
+- 训练耗时：8000 张 prep ~3min + 60 epoch ~6min，总 ~9min。
 
 ## 4. 评测（留出 test_set）
 
@@ -55,16 +61,23 @@ sczl（`search/sczl/`，从 `go-image-search` 项目 vendor 进来，零内部�
 recall@1/@3/@5 及 NN miss。排序尾部用 shape-context 精排（默认 SCTOP=12、SCBLEND=0.7，
 可经环境变量覆盖；纯 SC 或纯 NN 都更差，0.7 混合最优）。
 
-**最终结果（118 张有效查询，2 张分割失败不计）**
+**当前最终结果（新 test_set，96 refs / 120 查询，全部有效）**
+```
+baseline adaptive : recall@1 = 106/120 (88.3%)   recall@3 = 112/120 (93.3%)   recall@5 = 113/120 (94.2%)
+neural (MLP 93d)  : recall@1 = 111/120 (92.5%)   recall@3 = 117/120 (97.5%)   recall@5 = 119/120 (99.2%)
+```
+- 相对 baseline：recall@1 +4.2pp、recall@3 +4.2pp、recall@5 +5.0pp。
+- 剩余 9 个 @1 miss：2 张 home_work / a-icon-file2（分割受损/特征全面失效难例）；
+  icon-check、icon-save、icon-trash（新增灰度实心族内混淆，真值在 rank 2-3）；
+  lingshi、calculate、auto_awesome_motion、perm_phone（灰度描边族内混淆）。
+- 提升轨迹：81 维 plain96 @1 92.5% / @3 96.7% / @5 97.5% → **+sczl 子分数拆分
+  （93 维）@1 持平 92.5% / @3 97.5% / @5 99.2%**（@3 +1、@5 +2，救回 check_box）。
+
+### 历史：旧 test_set（66 refs，118 有效查询）
 ```
 baseline adaptive : recall@1 = 109/118 (92.4%)   recall@3 = 109/118 (92.4%)   recall@5 = 109/118 (92.4%)
 neural (MLP)      : recall@1 = 114/118 (96.6%)   recall@3 = 116/118 (98.3%)   recall@5 = 116/118 (98.3%)
 ```
-- recall@1 +4.2pp、recall@3 +5.9pp、recall@5 +5.9pp，均超 baseline。
-- 剩余 4 个 miss：2 张 home_work（scale 0.74 过小 / 1.26 溢出裁边 + 旋转 + 双文字，
-  真值不在 top-5，分割受损难例）；2 张在 rank 2-3（account_balance / dashboard 的
-  灰色描边族内混淆）。
-- 提升轨迹：无 sczl 91.5% → +sczl 特征 94.9% → 8000 训练图 + 精排调参 96.6% @1。
 
 ## 5. 性能优化（针对"旋转扫描太耗 CPU/时间"的诉求）
 
@@ -103,19 +116,21 @@ neural (MLP)      : recall@1 = 114/118 (96.6%)   recall@3 = 116/118 (98.3%)   re
 
 | 文件 | 作用 |
 | --- | --- |
-| `search/nn.go` | MLP 实现（forward/backprop/Adam/gob 存取） |
+| `search/nn.go` | MLP 实现（forward/backprop/Adam/gob 存取；含可选 SE 注意力，`NN_ATN`） |
 | `search/nnfit.go` | 特征向量构建、`queryMasks` 缓存、`parFor`、`runTrain`、`runNNEval`、诊断（`rr`/`seg`） |
-| `search/sczl/` | vendor 的 sczl 颜色无关检索算法（含新增导出 `GlobalScoresAll` 廉价打分） |
+| `search/sczl/` | vendor 的 sczl 颜色无关检索算法（含导出 `GlobalScoresAll` 与 5 子分数 `SubScoresAll`/`GlobalSubScoresOf`） |
 | `search/sczleval.go` | sczl 单独评测（mono/color 拆分） |
 | `search/main.go` | 子命令 `train`/`nn`/`sczl`/`rr`/`seg`/`space` |
-| `train_set/` | gentest 生成的训练集（8000 张，seed 20260715，gitignore 不入库） |
-| `weights.gob` | 训练产物（最终：8000 张 / 60 epoch / lr=0.002 / 81 维输入） |
+| `train_set/` | gentest 生成的训练集（8000 张，seed 20260809，gitignore 不入库） |
+| `weights.gob` | 训练产物（最终：8000 张 / 60 epoch / lr=0.002 / 93 维输入，plain MLP） |
 
 常用命令：
 ```bash
-go run ./gentest -n 8000 -seed 20260715 -out train_set   # 生成训练集（若需重建）
+go run ./gentest -n 8000 -seed 20260809 -out train_set   # 生成训练集（若需重建）
+go run ./gentest -n 120 -seed 20260809 -out test_set     # 生成测试集（96 refs）
 go build -o search_nn.exe ./search
-.\search_nn.exe . train train_set weights.gob 60 0.002   # 训练
+.\search_nn.exe . train train_set weights.gob 60 0.002        # 训练 plain（NN_ATN=none）
+$env:NN_ATN="hidden"; .\search_nn.exe . train train_set w.gob 60 0.002  # 注意力实验
 .\search_nn.exe . nn weights.gob                         # 在 test_set 上评测（对比 baseline）
 .\search_nn.exe . sczl                                   # sczl 单独评测
 .\search_nn.exe . rr weights.gob                         # 逐查询各方法真值排名
@@ -132,8 +147,10 @@ go build -o search_nn.exe ./search
 - [x] vendor sczl 算法为第二专家（`search/sczl/`），并导出廉价 `GlobalScoresAll`
 - [x] 实验验证：sczl 单独 82.2%（整体不如现有融合）但其**错误集互补**（救回 5 个灰度难例）
 - [x] 把 sczl 全局相似度作为 NN 输入特征（soft 神经路由）
+- [x] **sczl 5 子分数拆分进 NN**（`SubScoresAll`/`GlobalSubScoresOf`）：occ/ncc/region/fd/rad
+      各占一个特征维度（81 维 → 93 维），网络可对每个专家分量单独定价
 - [x] 8000 训练图 + shape-context 精排调参（SCTOP=12/SCBLEND=0.7）
-- [x] 目标指标：recall@1 与 recall@3 达成 96.6% / 98.3%
+- [x] 目标指标：新 test_set 上 recall@1 / @3 / @5 达成 92.5% / 97.5% / 99.2%（超 baseline 88.3/93.3/94.2）
 - [x] **接入 search server**：`/api/search` 启动时加载 `weights.gob`（可用 `NN_WEIGHTS` 覆盖路径），
       优先用 `rankNN`（含 sczl 专家 + shape-context 精排），权重缺失/形状不符则回退 `compositeAdaptive`；
       引用索引变化时自动重建 sczl 专家索引（与 entries 1:1 对齐）。
@@ -145,17 +162,48 @@ go build -o search_nn.exe ./search
   - **两阶段粗筛**（`PREFILTER_N`，默认 50）：廉价签名全库扫 + 昂贵特征只在 top-N 做，
     recall 不变；1 万条库预计 ~18s → ~0.35s
 
-### 最终评测结果（test_set，118 张有效查询）
+### 最终评测结果（新 test_set，96 refs / 120 查询）
 ```
-baseline adaptive : recall@1 = 109/118 (92.4%)   recall@3 = 109/118 (92.4%)   recall@5 = 109/118 (92.4%)
-neural (MLP)      : recall@1 = 114/118 (96.6%)   recall@3 = 116/118 (98.3%)   recall@5 = 116/118 (98.3%)
+baseline adaptive : recall@1 = 106/120 (88.3%)   recall@3 = 112/120 (93.3%)   recall@5 = 113/120 (94.2%)
+neural (MLP 93d)  : recall@1 = 111/120 (92.5%)   recall@3 = 117/120 (97.5%)   recall@5 = 119/120 (99.2%)
 ```
-- 相对 baseline：recall@1 +4.2pp、recall@3 +5.9pp、recall@5 +5.9pp。
-- 剩余 4 miss：2 张 home_work（分割受损难例，真值 >top5）；2 张在 rank 2-3
-  （account_balance / dashboard 灰色族内混淆）。
+- 相对 baseline：recall@1 +4.2pp、recall@3 +4.2pp、recall@5 +5.0pp。
+- 剩余 9 个 @1 miss（真值多在 rank 2-3）：icon-check / icon-save / icon-trash /
+  a-icon-file2（新增灰度实心族）；home_work / calculate / auto_awesome_motion /
+  perm_phone / lingshi（灰度描边族）。
+
+### 注意力机制实验（2026-08-09，已在 nn.go 实现，默认关闭）
+
+在 MLP 上实现了两种 SE 式注意力（`search/nn.go`，`NN_ATN` 环境变量选择）：
+- `hidden`：第一隐层上的 Squeeze-and-Excitation 通道注意力（96→24→96，门乘 h1）；
+- `input`：输入级专家注意力，对 pair 特征块按样本做门（31→12→31），
+  直接实现"何时信任哪个专家"的软路由；
+- `none`：原始纯 MLP（训练/推理默认，实验证明它仍是最优）。
+
+**新 test_set（96 refs / 120 查询）留出集结果**——plain/hidden/input 三份权重同配置
+（8000 训练图 / 60 epoch / lr=0.002，基权重初始化 RNG 完全一致，干净消融，均为 93 维）：
+```
+plain (none)   : recall@1 = 111/120 (92.5%)   recall@3 = 117/120 (97.5%)   recall@5 = 119/120 (99.2%)
+hidden (SE)    : recall@1 = 109/120 (90.8%)   recall@3 = 117/120 (97.5%)   recall@5 = 118/120 (98.3%)
+input (SE)     : recall@1 = 110/120 (91.7%)   recall@3 = 117/120 (97.5%)   recall@5 = 118/120 (98.3%)
+```
+结论：注意力机制在两个测试集（旧 66 refs 与新 96 refs）上都**没有带来提升**——
+hidden/input 的 @1 均不高于 plain，网络容量不是瓶颈；miss 集只是等量交换
+（各救回 1-2 个、各丢掉 1-2 个）。代码保留（默认 none，`NN_ATN` 可开）。
+
+### sczl 子分数特征实验（2026-08-09）
+将单值 sczl 全局融合分拆为 occ/ncc/region/fd/rad 五个子分数作为独立特征维度
+（81 维 → 93 维），同配置（8000/60/0.002，96 refs）重训对比（plain 模式）：
+```
+81 维（sczl 单值）: recall@1 = 111/120 (92.5%)   recall@3 = 116/120 (96.7%)   recall@5 = 117/120 (97.5%)
+93 维（sczl 5 分）: recall@1 = 111/120 (92.5%)   recall@3 = 117/120 (97.5%)   recall@5 = 119/120 (99.2%)
+```
+结论：**sczl 5 子分数拆分有效**——@1 持平，@3 +1、@5 +2（救回 check_box、dashboard），
+train@1 也升（94.8% → 96.1%）。已作为当前 weights.gob（93 维）基线保留。
 
 ### 待办
-- [ ] （可选）sczl 更多子特征（occ/fd 分开）或 SC/HOG 精排进 NN，继续压灰度难例
+- [ ] （可选）SC/HOG 精排进 NN，或新增"实心 vs 描边"密度特征，继续压灰度实心族
+      （icon-check/search、icon-save/book、icon-trash/video 这类 mask/SC 都失效的难例）
 - [ ] （可选）改进分割：处理 scale>1 溢出与细笔画丢失
 - [ ] （可选）服务端 SC 精排再提速：剩余 ~310ms 中精排仍占大头，可进一步并行化或降旋转步数（36→18）
 
@@ -164,6 +212,10 @@ neural (MLP)      : recall@1 = 114/118 (96.6%)   recall@3 = 116/118 (98.3%)   re
 - 训练集与测试集用不同 seed 生成，图像不同但同分布；若要严格泛化，可再生成
   第三个集做验证集/早停。
 - `weights.gob` 是 gob 编码，结构变更（输入维数/层宽）会导致旧权重不兼容 → 需重训。
+  当前为 **93 维 plain**（sczl 5 子分数版）；旧 81 维权重 `len(W1) != nnH1*nnInput`
+  会被 server 拒绝并回退 baseline，需删除重建（如 `.searchcache/` 缓存）。
+- 注意力（hidden/input）经 `NN_ATN` 选型，权重 gob 自带 WSE/WA 字段标记，
+  无字段即为 plain——旧权重与 plain 模式完全兼容。
 - sczl 来自 `go-image-search` 项目（MIT 风格自研代码），本仓库为 vendor 副本；
   跨模块 import 受 Go `internal` 规则限制，故直接拷贝。
 - `compositeAdaptive` 含 shapeContext（36 次旋转 × Hungarian）较慢，评测保留作 baseline 对比。

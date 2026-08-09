@@ -99,7 +99,7 @@ func pairFeat(q, r *Feat, qm *queryMasks) []float64 {
 // what separates the gray-outline icon families the aggregate scores tie on.
 func polarShiftDetail(q, r *Feat) []float64 {
 	bestK := 0
-	best := -1E18
+	best := -1e18
 	for k := -nAng; k <= nAng; k++ {
 		var acc float64
 		n := 0
@@ -149,10 +149,12 @@ func polarShiftDetail(q, r *Feat) []float64 {
 //     family can never outrank the true one;
 //   - mono: whether the query sprite is monochrome (0/1), letting the model
 //     condition on gray vs colorful queries.
-// plus the 16 per-ring shape-detail cosines and the sczl color-agnostic global
-// similarity (a second, independent expert whose error set differs — the
-// network learns when to trust it, i.e. soft neural routing).
-func computePairs(q *Feat, refs []*Feat, qm *queryMasks, sczlScores []float64) [][]float64 {
+//
+// plus the 16 per-ring shape-detail cosines and the five sczl color-agnostic
+// global sub-scores (occ / ncc / region / Fourier / radial) as separate expert
+// dimensions (a second, independent expert whose error set differs — the
+// network learns when to trust each one, i.e. soft neural routing).
+func computePairs(q *Feat, refs []*Feat, qm *queryMasks, sczlSub [][5]float64) [][]float64 {
 	out := make([][]float64, len(refs))
 	hists := make([]float64, len(refs))
 	for i, r := range refs {
@@ -178,30 +180,30 @@ func computePairs(q *Feat, refs []*Feat, qm *queryMasks, sczlScores []float64) [
 		}
 		out[i] = append(out[i], gate, mono)
 		out[i] = append(out[i], polarShiftDetail(q, r)...)
-		if sczlScores != nil {
-			out[i] = append(out[i], sczlScores[i])
+		if sczlSub != nil {
+			out[i] = append(out[i], sczlSub[i][:]...)
 		} else {
-			out[i] = append(out[i], 0)
+			out[i] = append(out[i], 0, 0, 0, 0, 0)
 		}
 	}
 	return out
 }
 
 // buildPairData computes the pair feature vectors, the query-level statistics
-// and the sczl global scores for a query, in one place shared by training and
+// and the sczl sub-scores for a query, in one place shared by training and
 // evaluation so the NN never sees inconsistent feature layouts.
 func buildPairData(q *Feat, refs []*Feat, qm *queryMasks, sczlIx *sczl.Index, qd sczl.Descriptor) ([][]float64, []float64, []float64) {
-	var sczlScores []float64
+	var sczlSub [][5]float64
 	if sczlIx != nil && qd.Valid {
-		sczlScores = sczlIx.GlobalScoresAll(qd, 36)
+		sczlSub = sczlIx.SubScoresAll(qd, 36)
 	}
-	return buildPairDataScored(q, refs, qm, sczlScores)
+	return buildPairDataScored(q, refs, qm, sczlSub)
 }
 
-// buildPairDataScored is buildPairData with the sczl scores supplied by the
+// buildPairDataScored is buildPairData with the sczl sub-scores supplied by the
 // caller (e.g. computed only for a pre-filtered shortlist).
-func buildPairDataScored(q *Feat, refs []*Feat, qm *queryMasks, sczlScores []float64) ([][]float64, []float64, []float64) {
-	pairs := computePairs(q, refs, qm, sczlScores)
+func buildPairDataScored(q *Feat, refs []*Feat, qm *queryMasks, sczlSub [][5]float64) ([][]float64, []float64, []float64) {
+	pairs := computePairs(q, refs, qm, sczlSub)
 	best, gap := queryStats(pairs)
 	return pairs, best, gap
 }
@@ -299,19 +301,19 @@ func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descripto
 
 	// ---- stage 2: full features + NN on the shortlist ----
 	qm := newQueryMasks(q.Mask48)
-	var sczlScores []float64
+	var sczlSub [][5]float64
 	if sczlIx != nil && qd.Valid {
 		pq := sczl.PrepareQuery(qd, 36)
-		sczlScores = make([]float64, nKeep)
+		sczlSub = make([][5]float64, nKeep)
 		for j, ki := range keep {
-			sczlScores[j] = pq.GlobalScoreOf(sczlIx.Entries[ki])
+			sczlSub[j] = pq.GlobalSubScoresOf(sczlIx.Entries[ki])
 		}
 	}
 	keptRefs := make([]*Feat, nKeep)
 	for j, ki := range keep {
 		keptRefs[j] = refs[ki]
 	}
-	pairs, best, gap := buildPairDataScored(q, keptRefs, qm, sczlScores)
+	pairs, best, gap := buildPairDataScored(q, keptRefs, qm, sczlSub)
 	score := make([]float64, nKeep)
 	for j := range keptRefs {
 		score[j] = m.predict(nnVec(pairs[j], best, gap))
@@ -525,7 +527,7 @@ func runTrain(root string, args []string) {
 			n := end - off
 			for _, si := range order[off:end] {
 				s := samples[si]
-				p, _, _ := m.forward(s.x)
+				p, _, _, _, _, _, _, _ := m.forward(s.x)
 				loss += -s.w * (s.y*mathLog(p) + (1-s.y)*mathLog(1-p))
 				m.backprop(g, s.x, s.y, s.w)
 			}
@@ -888,12 +890,11 @@ func pxFromEntry(root, name string) []Px {
 	return extractQuery(img)
 }
 
-
 // so a failing query can be inspected feature-by-feature (which features rank
 // the true ref highest, which do not).
 func dumpNNFeat(name, want string, q *Feat, refs []*Feat, refNames []string) {
 	type row struct {
-		name                       string
+		name                                        string
 		hist, radial, ang, shp, col, zern, m64, m32 float64
 	}
 	rows := make([]row, len(refs))
@@ -922,7 +923,6 @@ func dumpNNFeat(name, want string, q *Feat, refs []*Feat, refNames []string) {
 	fmt.Printf("   want(%s) is at row-index %d by hist\n", want, wi)
 }
 
-
 func runNNEval(root string, args []string) {
 	weightsPath := "weights.gob"
 	if len(args) > 0 {
@@ -938,7 +938,10 @@ func runNNEval(root string, args []string) {
 	entries := loadManifest(filepath.Join(root, "test_set"))
 
 	nn1, nn3, nn5, base1, base3, base5 := 0, 0, 0, 0, 0, 0
-	type miss struct{ img, want string; got []string }
+	type miss struct {
+		img, want string
+		got       []string
+	}
 	var nnMisses []miss
 	type evalRow struct {
 		img, want string
