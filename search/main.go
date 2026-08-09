@@ -81,6 +81,21 @@ func main() {
 		case "server":
 			runServer(root, os.Args[3:])
 			return
+		case "train":
+			runTrain(root, os.Args[3:])
+			return
+		case "nn":
+			runNNEval(root, os.Args[3:])
+			return
+		case "seg":
+			runSegDump(root, os.Args[3:])
+			return
+		case "rr":
+			runRankReport(root, os.Args[3:])
+			return
+		case "sczl":
+			runSCZLEval(root, os.Args[3:])
+			return
 		}
 	}
 	if len(os.Args) > 2 && os.Args[2] == "adp" {

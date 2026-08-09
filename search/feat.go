@@ -20,7 +20,7 @@ const (
 // zernModes collects all (n, m) pairs used: n in 0..znMax, m >= 0 step 2
 // (|Z_{n,m}| == |Z_{n,-m}| so keep non-negative orders only).
 var zernModes = buildZernModes()
-var zernPoly = makeZernPolynomial(zernModes)
+var zernTerms = makeZernTerms(zernModes)
 
 type zernMode struct{ n, m int }
 
@@ -34,9 +34,18 @@ func buildZernModes() []zernMode {
 	return out
 }
 
-// makeZernPolynomial returns radial polynomials P_nm(r).
-func makeZernPolynomial(modes []zernMode) []func(r float64) float64 {
-	out := make([]func(r float64) float64, len(modes))
+// zernTerm is one term c*r^e of a Zernike radial polynomial.
+type zernTerm struct {
+	c float64
+	e int
+}
+
+// makeZernTerms returns the radial polynomial terms of every mode. Evaluation
+// avoids math.Pow per term: the caller precomputes the powers r^0..r^znMax once
+// per pixel, so each term costs a single multiply-add instead of a full exp/log
+// (math.Pow is ~100-300ns each; this was the dominant cost of buildFeat).
+func makeZernTerms(modes []zernMode) [][]zernTerm {
+	out := make([][]zernTerm, len(modes))
 	for i, md := range modes {
 		n, m := md.n, md.m
 		am := m
@@ -44,26 +53,16 @@ func makeZernPolynomial(modes []zernMode) []func(r float64) float64 {
 			am = -am
 		}
 		// P_nm(r) = sum_{s=0}^{(n-|m|)/2} (-1)^s (n-s)!/(s! ((n+|m|)/2-s)! ((n-|m|)/2-s)!) r^(n-2s)
-		type term struct {
-			c float64
-			e int
-		}
-		var terms []term
+		var terms []zernTerm
 		for s := 0; s <= (n-am)/2; s++ {
 			c := float64(fact(n-s))
 			c /= float64(fact(s) * fact((n+am)/2-s) * fact((n-am)/2-s))
 			if s%2 == 1 {
 				c = -c
 			}
-			terms = append(terms, term{c, n - 2*s})
+			terms = append(terms, zernTerm{c, n - 2*s})
 		}
-		out[i] = func(r float64) float64 {
-			var v float64
-			for _, t := range terms {
-				v += t.c * math.Pow(r, float64(t.e))
-			}
-			return v
-		}
+		out[i] = terms
 	}
 	return out
 }
@@ -294,16 +293,38 @@ func buildFeat(px []Px) *Feat {
 	}
 	l1norm(f.AngMag)
 
-	// 4) Zernike moments on binary mask
+	// 4) Zernike moments on binary mask. Per pixel the powers of r are
+	// precomputed once (cheap multiply chain) and cos(m*t)/sin(m*t) are built
+	// from cos(2t)/sin(2t) by angle addition, avoiding per-term math.Pow and
+	// per-mode trig — this loop dominated buildFeat cost before.
 	zacc := make([]complex128, len(zernModes))
 	scale := 1.0 / rmax
+	var pow [znMax + 1]float64
 	for _, p := range px {
 		dx, dy := float64(p.X)-cx, float64(p.Y)-cy
 		r := math.Hypot(dx, dy) * scale
 		t := math.Atan2(dy, dx)
+		pow[0] = 1
+		for e := 1; e <= znMax; e++ {
+			pow[e] = pow[e-1] * r
+		}
+		ct, st := math.Cos(t), math.Sin(t)
+		c2t := 2*ct*ct - 1
+		s2t := 2 * st * ct
+		var cosK, sinK [znMax/2 + 1]float64
+		cosK[0], sinK[0] = 1, 0
+		for k := 1; k <= znMax/2; k++ {
+			cosK[k] = cosK[k-1]*c2t - sinK[k-1]*s2t
+			sinK[k] = sinK[k-1]*c2t + cosK[k-1]*s2t
+		}
 		for i, md := range zernModes {
-			poly := zernPoly[i](r)
-			zacc[i] += complex(poly*math.Cos(float64(md.m)*t), poly*math.Sin(float64(md.m)*t))
+			terms := zernTerms[i]
+			var poly float64
+			for _, tm := range terms {
+				poly += tm.c * pow[tm.e]
+			}
+			k := md.m / 2
+			zacc[i] += complex(poly*cosK[k], poly*sinK[k])
 		}
 	}
 	for i := range f.Zern {
