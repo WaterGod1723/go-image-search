@@ -10,12 +10,13 @@
   icon**）建索引 → 对 `test_set/*.png`（120 张查询图）`extractQuery` 分割出 sprite →
   `buildFeat` 提 7 类手工特征 → `composite`/`compositeAdaptive`（match.go）融合排序。
 - 每张查询图的真值来源记录在 `test_set/manifest.json`（由 `gentest` 生成）。
-- **基线（`search.exe .` 默认 = adaptive 融合）**（新 test_set，96 refs / 120 查询）：
-  `recall@1 = 106/120 = 88.3%`，recall@3 = 93.3%，recall@5 = 94.2%。miss 集中在
+- **基线（`search.exe .` 默认 = adaptive 融合）**（test_set，96 refs / 120 查询）：
+  `recall@1 = 105/120 = 87.5%`，recall@3 = 91.7%，recall@5 = 94.2%。miss 集中在
   灰度描边族（home_work / fact_check / calculate / auto_awesome_motion / perm_phone）
   与新增灰度实心族（icon-check / icon-save / icon-trash / a-icon-file2 等）。
-- 测试集 2026-08-09 已随新 icon 重新生成（seed 20260809，`test_pngs` 66→96）；
-  旧测试集结果见 §7 历史。
+- 测试集 2026-08-09 随新 icon 重生成，并**去掉旋转干扰**（`gentest -no-rot`，
+  与旋转版逐样本匹配：同 canvas/背景/文字/scale/translate，仅 sprite 不旋转，
+  见 §7 旋转消融）；旧旋转版可用 `gentest -n 120 -seed 20260809` 复现。
 
 ## 2. 核心思路：Learning-to-Rank MLP（特征融合 + 神经网络路由）
 
@@ -61,19 +62,18 @@ sczl（`search/sczl/`，从 `go-image-search` 项目 vendor 进来，零内部�
 recall@1/@3/@5 及 NN miss。排序尾部用 shape-context 精排（默认 SCTOP=12、SCBLEND=0.7，
 可经环境变量覆盖；纯 SC 或纯 NN 都更差，0.7 混合最优）。
 
-**当前最终结果（新 test_set，96 refs / 120 查询，全部有效）**
+**当前最终结果（test_set 无旋转版，96 refs / 120 查询，全部有效）**
 ```
-baseline adaptive : recall@1 = 106/120 (88.3%)   recall@3 = 112/120 (93.3%)   recall@5 = 113/120 (94.2%)
-neural (MLP 93d)  : recall@1 = 111/120 (92.5%)   recall@3 = 117/120 (97.5%)   recall@5 = 119/120 (99.2%)
-  neural mono : recall@1 = 40/43 (93.0%)  @5 = 42/43 (97.7%)   [base @1 = 40/43 (93.0%)]
-  neural color: recall@1 = 71/77 (92.2%)  @5 = 77/77 (100.0%)  [base @1 = 66/77 (85.7%)]
+baseline adaptive : recall@1 = 105/120 (87.5%)   recall@3 = 110/120 (91.7%)   recall@5 = 113/120 (94.2%)
+neural (MLP 93d)  : recall@1 = 112/120 (93.3%)   recall@3 = 117/120 (97.5%)   recall@5 = 118/120 (98.3%)
+  neural mono : recall@1 = 41/44 (93.2%)  @5 = 43/44 (97.7%)   [base @1 = 40/44 (90.9%)]
+  neural color: recall@1 = 71/76 (93.4%)  @5 = 75/76 (98.7%)   [base @1 = 65/76 (85.5%)]
 ```
-- 相对 baseline：recall@1 +4.2pp、recall@3 +4.2pp、recall@5 +5.0pp。
-- 剩余 9 个 @1 miss：2 张 home_work / a-icon-file2（分割受损/特征全面失效难例）；
-  icon-check、icon-save、icon-trash（新增灰度实心族内混淆，真值在 rank 2-3）；
-  lingshi、calculate、auto_awesome_motion、perm_phone（灰度描边族内混淆）。
+- 相对 baseline：recall@1 +5.8pp、recall@3 +5.8pp、recall@5 +4.1pp。
+- 剩余 8 个 @1 miss：icon-check、icon-save、icon-trash、a-icon-file2（灰度实心族）；
+  lingshi、fact_check、calculate、perm_phone（灰度描边族）。真值多在 rank 2-3。
 - 提升轨迹：81 维 plain96 @1 92.5% / @3 96.7% / @5 97.5% → **+sczl 子分数拆分
-  （93 维）@1 持平 92.5% / @3 97.5% / @5 99.2%**（@3 +1、@5 +2，救回 check_box）。
+  （93 维）@1 92.5%→93.3%、@3 97.5%、@5 99.2%→98.3%**（净效果大致持平，见旋转消融）。
 
 ### 历史：旧 test_set（66 refs，118 有效查询）
 ```
@@ -129,10 +129,12 @@ neural (MLP)      : recall@1 = 114/118 (96.6%)   recall@3 = 116/118 (98.3%)   re
 常用命令：
 ```bash
 go run ./gentest -n 8000 -seed 20260809 -out train_set   # 生成训练集（若需重建）
-go run ./gentest -n 120 -seed 20260809 -out test_set     # 生成测试集（96 refs）
+go run ./gentest -n 120 -seed 20260809 -out test_set     # 生成测试集（96 refs，含旋转）
+go run ./gentest -n 120 -seed 20260809 -out test_set -no-rot  # 无旋转版（当前 canonical）
 go build -o search_nn.exe ./search
 .\search_nn.exe . train train_set weights.gob 60 0.002        # 训练 plain（NN_ATN=none）
 $env:NN_ATN="hidden"; .\search_nn.exe . train train_set w.gob 60 0.002  # 注意力实验
+$env:NN_NOGM="1"; .\search_nn.exe . train train_set w.gob 60 0.002       # gate/mono 消融
 .\search_nn.exe . nn weights.gob                         # 在 test_set 上评测（对比 baseline）
 .\search_nn.exe . sczl                                   # sczl 单独评测
 .\search_nn.exe . rr weights.gob                         # 逐查询各方法真值排名
@@ -154,6 +156,9 @@ $env:NN_ATN="hidden"; .\search_nn.exe . train train_set w.gob 60 0.002  # 注意
 - [x] 8000 训练图 + shape-context 精排调参（SCTOP=12/SCBLEND=0.7）
 - [x] 目标指标：新 test_set 上 recall@1 / @3 / @5 达成 92.5% / 97.5% / 99.2%（超 baseline 88.3/93.3/94.2）
 - [x] `runNNEval` 输出 mono/color 拆分统计（灰度查询专门监控，验证注意力/路由假设）
+- [x] **旋转干扰消融**：`gentest -no-rot` 生成逐样本匹配的无旋转测试集（仅 sprite 不旋转），
+      证明新模型旋转鲁棒（有旋转 92.5 vs old 90.8）、老模型旋转敏感（去旋转后 90.8→94.2），
+      无旋转时两者打平；canonical test_set 已切换为无旋转版
 - [x] **接入 search server**：`/api/search` 启动时加载 `weights.gob`（可用 `NN_WEIGHTS` 覆盖路径），
       优先用 `rankNN`（含 sczl 专家 + shape-context 精排），权重缺失/形状不符则回退 `compositeAdaptive`；
       引用索引变化时自动重建 sczl 专家索引（与 entries 1:1 对齐）。
@@ -227,6 +232,29 @@ train@1 也升（94.8% → 96.1%）。已作为当前 weights.gob（93 维）基
 救回 home_work、丢掉 check_box）。这两个偏置对网络既无害也无明显增益，保留
 （默认 NN_NOGM=0）。`NN_NOGM` 开关保留以便未来 re-ablation；权重维度随
 NN_NOGM 变化，`checkMLPDims` 会在评测时校验一致性。
+
+### 旋转干扰消融（2026-08-09，`gentest -no-rot`）
+`gentest` 新增 `-no-rot` 开关：sprite 仍按抽到的旋转角做布局（scale/translate/
+文字避让位置不变），但**绘制时用 0 度**，未旋转 sprite 落在旋转包围盒内不重叠文字。
+同 seed 下旋转/无旋转两版测试集逐样本一致（canvas/背景/文字/scale/translate 全同，
+仅 sprite 是否旋转），是干净的旋转消融。
+
+在同一批样本（seed 20260809，96 refs / 120 查询）上评测新老模型：
+```
+                    recall@1      recall@3      recall@5
+有旋转  old (81d) : 109/120 90.8%  113/120 94.2%  115/120 95.8%
+有旋转  new (93d) : 111/120 92.5%  117/120 97.5%  119/120 99.2%
+无旋转  old (81d) : 113/120 94.2%  117/120 97.5%  118/120 98.3%
+无旋转  new (93d) : 112/120 93.3%  117/120 97.5%  118/120 98.3%
+```
+结论：
+- **新模型对旋转更鲁棒**——有旋转时 new 明显超 old（92.5 vs 90.8，@3 +3、@5 +4），
+  靠的是 sczl 5 子分数特征 + 96-ref 训练；去掉旋转后 new 几乎不变（92.5→93.3）。
+- **老模型对旋转敏感**——去旋转后 old 大涨（90.8→94.2，@1 +4、@3 +4、@5 +3）。
+- 无旋转时两者基本打平（old 94.2 vs new 93.3，差 1 条在噪声内）；baseline 对旋转不敏感
+  （88.3 vs 87.5）。
+- 已改用无旋转版作为 canonical test_set（文字干扰相同，避免更早生成的"去旋转集"因
+  sprite 轴对齐留白多导致文字更多而失真）。
 
 ### 待办
 - [ ] （可选）SC/HOG 精排进 NN，或新增"实心 vs 描边"密度特征，继续压灰度实心族

@@ -33,6 +33,7 @@ var (
 	gl     = flag.Float64("sprite-lo", 0.35, "sprite side fraction of canvas side (min)")
 	gh     = flag.Float64("sprite-hi", 0.85, "sprite side fraction of canvas side (max)")
 	allSd  = flag.Bool("all-sides", false, "put text on every side (default: random subset)")
+	noRot  = flag.Bool("no-rot", false, "disable rotation interference (rot always 0)")
 )
 
 // Sample is the ground-truth record for a generated image.

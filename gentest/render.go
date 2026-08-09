@@ -29,6 +29,16 @@ func renderSample(rng *rand.Rand, lib *fontLib, sprite *image.NRGBA, crop [4]int
 	if rng.Float64() < 0.9 {
 		rot = rng.Float64()*360 - 180
 	}
+	// noRot: the sprite is still laid out (scale/translate/text avoidance) from
+	// the drawn rot so the sample matches the rotation-full one exactly, but it
+	// is PAINTED unrotated (fits inside the rotated bbox), removing the
+	// rotation interference while keeping every other attribute identical.
+	paintDeg := rot
+	spec.Rotation = rot
+	if *noRot {
+		paintDeg = 0
+		spec.Rotation = 0
+	}
 	rad := rot * math.Pi / 180
 	cos, sin := math.Cos(rad), math.Sin(rad)
 
@@ -70,7 +80,7 @@ func renderSample(rng *rand.Rand, lib *fontLib, sprite *image.NRGBA, crop [4]int
 	ox := cw/2 + mx/2 + (rng.Float64()-0.5)*mx
 	oy := ch/2 + my/2 + (rng.Float64()-0.5)*my
 
-	affinePaint(canvas, sprite, scale, rot, ox, oy)
+	affinePaint(canvas, sprite, scale, paintDeg, ox, oy)
 
 	// screen-space bbox of the drawn sprite, used to keep edge text clear of it
 	spriteRect := spriteScreenRect(sw, sh, scale, rot, ox, oy)
@@ -78,7 +88,6 @@ func renderSample(rng *rand.Rand, lib *fontLib, sprite *image.NRGBA, crop [4]int
 
 	spec.Canvas = [2]int{w, h}
 	spec.BGHex = hexColor(bg)
-	spec.Rotation = rot
 	spec.Scale = scale
 	spec.Translate = [2]int{int(ox - float64(w)/2), int(oy - float64(h)/2)}
 	return canvas, spec
