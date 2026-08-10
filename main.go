@@ -48,7 +48,7 @@ func usage() {
   go-image-search query -index <索引文件> -q <查询图像> [-top N]
   go-image-search serve [-addr <host:port>] [-root <图像库目录>] [-index <索引文件>]
 
-神经网络权重：默认读取当前目录/程序目录 weights.gob，可用环境变量 NN_WEIGHTS 覆盖。
+神经网络权重：默认读取当前目录/程序目录 weights_split.gob，可用环境变量 NN_WEIGHTS 覆盖。
 `)
 }
 
@@ -106,12 +106,12 @@ func runQuery(args []string) {
 	}
 }
 
-// defaultWeights 返回神经网络权重路径（NN_WEIGHTS 或当前目录 weights.gob）。
+// defaultWeights 返回神经网络权重路径（NN_WEIGHTS 或当前目录 weights_split.gob）。
 func defaultWeights() string {
 	if v := os.Getenv("NN_WEIGHTS"); v != "" {
 		return v
 	}
-	return "weights.gob"
+	return "weights_split.gob"
 }
 
 func runServe(args []string) {

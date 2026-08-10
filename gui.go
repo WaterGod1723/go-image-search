@@ -6,8 +6,8 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"embed"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
@@ -28,7 +28,7 @@ import (
 //go:embed all:frontend/dist
 var guiAssets embed.FS
 
-//go:embed weights.gob
+//go:embed weights_split.gob
 var embeddedWeights []byte
 
 // App 桌面 GUI 的后端绑定。通过内嵌 *web.Server 复用其全部操作方法，
@@ -61,18 +61,18 @@ func NewApp() *App {
 }
 
 // defaultWeightsPath 返回神经网络权重文件路径：优先 NN_WEIGHTS 环境变量，
-// 其次程序所在目录 / 当前目录的 weights.gob，最后用户配置目录。若外部均
-// 不存在，则将内嵌的 weights.gob 解出到用户配置目录并返回该路径。
+// 其次程序所在目录 / 当前目录的 weights_split.gob，最后用户配置目录。若
+// 外部均不存在，则将内嵌的 weights_split.gob 解出到用户配置目录并返回该路径。
 func defaultWeightsPath() string {
 	if v := os.Getenv("NN_WEIGHTS"); v != "" {
 		return v
 	}
-	candidates := []string{"weights.gob"}
+	candidates := []string{"weights_split.gob"}
 	if exe, err := os.Executable(); err == nil {
-		candidates = append([]string{filepath.Join(filepath.Dir(exe), "weights.gob")}, candidates...)
+		candidates = append([]string{filepath.Join(filepath.Dir(exe), "weights_split.gob")}, candidates...)
 	}
 	if dir, err := os.UserConfigDir(); err == nil && dir != "" {
-		candidates = append(candidates, filepath.Join(dir, "go-image-search", "weights.gob"))
+		candidates = append(candidates, filepath.Join(dir, "go-image-search", "weights_split.gob"))
 	}
 	for _, c := range candidates {
 		if _, err := os.Stat(c); err == nil {
@@ -82,7 +82,7 @@ func defaultWeightsPath() string {
 	if dir, err := os.UserConfigDir(); err == nil && dir != "" {
 		dir = filepath.Join(dir, "go-image-search")
 		if err := os.MkdirAll(dir, 0o755); err == nil {
-			p := filepath.Join(dir, "weights.gob")
+			p := filepath.Join(dir, "weights_split.gob")
 			if _, err := os.Stat(p); err != nil {
 				if err := os.WriteFile(p, embeddedWeights, 0o644); err == nil {
 					return p
@@ -92,7 +92,7 @@ func defaultWeightsPath() string {
 			}
 		}
 	}
-	return "weights.gob"
+	return "weights_split.gob"
 }
 
 // defaultIndexPath 返回跨平台可写的默认索引路径（用户配置目录）。

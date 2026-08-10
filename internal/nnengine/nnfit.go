@@ -8,12 +8,12 @@ import (
 	"go-image-search/internal/nnengine/sczl"
 )
 
-// polarShiftDetail returns, per ring, the shape cosine at the best global
-// rotation (the same shift polarShiftSim finds), giving the network the
-// rotation-invariant silhouette profile instead of just its aggregate.
-func polarShiftDetail(q, r *Feat) []float64 {
+// polarShiftBoth computes, in a single shift scan, both the best global-rotation
+// mean cosine (what polarShiftSim reports) and the per-ring detail vector (what
+// polarShiftDetail reports). They previously scanned the same k range twice.
+func polarShiftBoth(q, r *Feat) (float64, []float64) {
 	bestK := 0
-	best := -1E18
+	best := -1e18
 	for k := -nAng; k <= nAng; k++ {
 		var acc float64
 		n := 0
@@ -53,7 +53,10 @@ func polarShiftDetail(q, r *Feat) []float64 {
 			out[ri] = dp / math.Sqrt(dq*dr)
 		}
 	}
-	return out
+	if best < 0 {
+		best = 0
+	}
+	return best, out
 }
 
 // queryMasks precomputes the 90 rotated copies of a query's 64x64 mask once,
@@ -117,12 +120,26 @@ func (qm *queryMasks) score(rb []float64) float64 {
 
 // computePairs builds the full pair vector per ref: base similarities, the
 // histogram-family gate, the mono flag, the 16 per-ring shape details, and the
-// sczl color-agnostic global similarity (second expert the NN can trust).
-func computePairs(q *Feat, refs []*Feat, qm *queryMasks, sczlScores []float64) [][]float64 {
+// sczl color-agnostic global similarity (a second, independent expert whose
+// error set differs — the network learns when to trust it, i.e. soft neural
+// routing). With the split sczl layout each row holds the 6 sub-signals
+// [occ, ncc, region, fourier, radial, hog] instead of a single fused score.
+func computePairs(q *Feat, refs []*Feat, qm *queryMasks, sczlRows [][]float64) [][]float64 {
 	out := make([][]float64, len(refs))
 	hists := make([]float64, len(refs))
+	details := make([][]float64, len(refs))
 	for i, r := range refs {
-		s := scores(q, r)
+		// s[3] (best-shift polar shape) and the per-ring detail come from the
+		// SAME scan (polarShiftBoth) — previously polarShiftSim and
+		// polarShiftDetail each scanned the full k range.
+		s := make([]float64, 7)
+		s[0] = histSim(q.Hist, r.Hist)
+		s[1] = cosSim(q.Radial, r.Radial)
+		s[2] = cosSim(q.AngMag, r.AngMag)
+		s[3], details[i] = polarShiftBoth(q, r)
+		s[4] = polarColSim(q, r)
+		s[5] = 0.5*s[1] + 0.5*s[2] // roundTripFactor
+		s[6] = cosSim(q.Zern, r.Zern)
 		hists[i] = s[0]
 		out[i] = []float64{s[0], s[1], s[2], s[3], s[4], s[5], s[6], qm.score(r.Mask48)}
 	}
@@ -137,15 +154,15 @@ func computePairs(q *Feat, refs []*Feat, qm *queryMasks, sczlScores []float64) [
 	if q.Mono {
 		mono = 1
 	}
-	for i, r := range refs {
+	for i := range refs {
 		gate := 0.0
 		if hists[i] >= bestHist-eps {
 			gate = 1
 		}
 		out[i] = append(out[i], gate, mono)
-		out[i] = append(out[i], polarShiftDetail(q, r)...)
-		if sczlScores != nil {
-			out[i] = append(out[i], sczlScores[i])
+		out[i] = append(out[i], details[i]...)
+		if sczlRows != nil {
+			out[i] = append(out[i], sczlRows[i]...)
 		} else {
 			out[i] = append(out[i], 0)
 		}
@@ -192,8 +209,8 @@ func nnVec(pair, best, gap []float64) []float64 {
 	return x
 }
 
-func buildPairDataScored(q *Feat, refs []*Feat, qm *queryMasks, sczlScores []float64) ([][]float64, []float64, []float64) {
-	pairs := computePairs(q, refs, qm, sczlScores)
+func buildPairDataScored(q *Feat, refs []*Feat, qm *queryMasks, sczlRows [][]float64) ([][]float64, []float64, []float64) {
+	pairs := computePairs(q, refs, qm, sczlRows)
 	best, gap := queryStats(pairs)
 	return pairs, best, gap
 }
@@ -236,19 +253,19 @@ func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descripto
 	keep := order[:nKeep]
 
 	qm := newQueryMasks(q.Mask48)
-	var sczlScores []float64
+	var sczlRows [][]float64
 	if sczlIx != nil && qd.Valid {
 		pq := sczl.PrepareQuery(qd, 36)
-		sczlScores = make([]float64, nKeep)
+		sczlRows = make([][]float64, nKeep)
 		for j, ki := range keep {
-			sczlScores[j] = pq.GlobalScoreOf(sczlIx.Entries[ki])
+			sczlRows[j] = pq.GlobalScoresRow(sczlIx.Entries[ki])
 		}
 	}
 	keptRefs := make([]*Feat, nKeep)
 	for j, ki := range keep {
 		keptRefs[j] = refs[ki]
 	}
-	pairs, best, gap := buildPairDataScored(q, keptRefs, qm, sczlScores)
+	pairs, best, gap := buildPairDataScored(q, keptRefs, qm, sczlRows)
 	score := make([]float64, nKeep)
 	for j := range keptRefs {
 		score[j] = m.predict(nnVec(pairs[j], best, gap))
@@ -257,18 +274,19 @@ func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descripto
 	for j := range outKeep {
 		outKeep[j] = j
 	}
-	// 以神经网络相关度为主排序键（即界面展示的"相似度"），保证展示与顺序一致。
-	sortByScore := func(a, b int) bool {
-		if score[a] != score[b] {
-			return score[a] > score[b]
-		}
+	// 与训练/评测一致的排序：先按颜色直方图族（hist）分组，再按 gate、
+	// 最后按神经网络相关度，保证展示与训练时的排序语义一致。
+	sortKept := func(a, b int) bool {
 		if pairs[a][0] != pairs[b][0] {
 			return pairs[a][0] > pairs[b][0]
 		}
 		ga, gb := pairs[a][8], pairs[b][8]
-		return ga > gb
+		if ga != gb {
+			return ga > gb
+		}
+		return score[a] > score[b]
 	}
-	insertionSort(outKeep, sortByScore)
+	insertionSort(outKeep, sortKept)
 
 	scTop := 12
 	scBlend := 0.7
@@ -288,7 +306,7 @@ func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descripto
 			j := outKeep[i]
 			score[j] = (1-scBlend)*score[j] + scBlend*scSimFromHists(qHists, keptRefs[j])
 		}
-		insertionSort(outKeep, sortByScore)
+		insertionSort(outKeep, sortKept)
 	}
 
 	out := make([]int, 0, len(refs))

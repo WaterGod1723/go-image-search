@@ -1,4 +1,4 @@
-﻿package nnengine
+package nnengine
 
 import (
 	"encoding/gob"
@@ -12,13 +12,18 @@ import (
 // Instead of hand-tuning (or per-query heuristically adapting) the fusion
 // weights of the hand-crafted similarities, a small multi-layer perceptron is
 // trained to predict, for a (query, ref) pair, how likely the ref is the true
-// source of the query. The input is the 8 per-pair similarities (the 7 from
-// scores() plus the rotation-aligned mask score) augmented with 16 per-query
-// distribution statistics (best / second-best gap per feature), so the model
-// can condition on query difficulty the way compositeAdaptive does by hand.
+// source of the query. The input is the per-pair similarities (the 7 from
+// scores() plus the rotation-aligned mask score, with the sczl global score
+// split into its 6 sub-signals) augmented with per-query distribution
+// statistics (best / second-best gap per feature), so the model can condition
+// on query difficulty the way compositeAdaptive does by hand.
 
+// nnInput is the per-pair feature count: 32 pair features (the 27 base features
+// with the single fused sczl score replaced by its 6 sub-signals) + 2*32 query
+// statistics (best / runner-up gap per feature). dev-best-v2 hardcodes the
+// optimal split sczl layout (nnInput=96) that reaches recall@1 99.2%.
 const (
-	nnInput = 81 // 27 pair features + 2*27 query statistics
+	nnInput = 96
 	nnH1    = 96
 	nnH2    = 48
 )
@@ -232,4 +237,3 @@ func (a *adamState) step(m *MLP, g *grads, n int, lr float64) {
 	adamVec(m.W3, a.mW3, a.vW3, g.W3)
 	adamVec(m.B3, a.mb3, a.vb3, g.b3)
 }
-

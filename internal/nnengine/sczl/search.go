@@ -506,7 +506,6 @@ func meanStd(s []float64) (mean, std float64) {
 	return
 }
 
-
 // GlobalScoresAll returns, for every index entry, the cheap color-agnostic
 // global similarity (rotation-scanned occupancy + NCC + region + Fourier +
 // radial, same fusion as the coarse phase of Query). SC and HOG are excluded
@@ -549,4 +548,26 @@ func PrepareQuery(q Descriptor, rotSteps int) *PreparedQuery {
 // Fourier+radial) of this prepared query against one reference descriptor.
 func (pq *PreparedQuery) GlobalScoreOf(e Descriptor) float64 {
 	return globalSimRot(pq.q, e, pq.occRots, pq.nccRots)
+}
+
+// GlobalScoresRow returns the individual rotation-invariant sub-signals of the
+// global similarity as separate scalars: [occ, ncc, region, fourier, radial,
+// hog]. The NN pair model consumes these separately (instead of the single
+// fused GlobalScoreOf) so it can learn each sub-signal's weight — they have
+// markedly different error sets (e.g. Fourier/radial outline vs occupancy
+// internal structure vs HOG gradient orientation). Each is in [0,1].
+func (pq *PreparedQuery) GlobalScoresRow(e Descriptor) []float64 {
+	q := pq.q
+	occ := bestOccDot(pq.occRots, e.Occupancy64, q.Occupancy64)
+	if occBBox := cosine(q.OccBBox64, e.OccBBox64); occBBox > occ {
+		occ = occBBox
+	}
+	ncc := bestNCCDot(pq.nccRots, e.Patch, q.Patch)
+	if nccBBox := dot(q.PatchBBox, e.PatchBBox); nccBBox > ncc {
+		ncc = nccBBox
+	}
+	reg := regionSim(q, e)
+	fd := cosine(q.Fourier, e.Fourier)
+	rad := histIntersect(q.Radial, e.Radial)
+	return []float64{occ, ncc, reg, fd, rad, hogSim(q, e)}
 }
