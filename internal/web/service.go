@@ -69,7 +69,8 @@ type QueryResult struct {
 	Matches []MatchInfo `json:"matches"`
 }
 
-// MatchInfo 单张图像的匹配信息（score 为引擎排序所用的直方图相似度）。
+// MatchInfo 单张图像的匹配信息（score 为引擎排序所用的神经网络相关度，
+// 与结果排位单调一致）。
 type MatchInfo struct {
 	ImageID string  `json:"imageId"`
 	Score   float64 `json:"score"`

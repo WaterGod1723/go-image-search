@@ -162,7 +162,7 @@ const pastezone = $('#pastezone');
 const queryInput = $('#query-input');
 
 function resetPickers() {
-  $('#dz-placeholder').style.display = '';
+  ['#dz-placeholder', '#pz-placeholder'].forEach(s => $(s).style.display = '');
   ['#query-preview', '#paste-preview'].forEach(s => {
     const el = $(s);
     el.style.display = 'none';
@@ -183,8 +183,11 @@ function resetQueryState() {
 
 function setQueryPreview(source, src) {
   resetPickers();
+  // 隐藏当前来源的占位符，显示对应的预览；另一来源的占位符恢复、
+  // 预览保持隐藏，保证两种输入方式互斥显示。
+  const holder = source === 'paste' ? '#pz-placeholder' : '#dz-placeholder';
   const sel = source === 'paste' ? '#paste-preview' : '#query-preview';
-  $(sel).style.display = 'none'; // 先隐藏
+  $(holder).style.display = 'none';
   const img = $(sel);
   img.src = src;
   img.style.display = 'block';
@@ -210,17 +213,6 @@ async function setQueryPath(p, source) {
   setQueryPreview(source, uri);
   $('#query-name').textContent = base(p) || p;
   doSearch();
-}
-
-function setQueryPreview(source, uri) {
-  $('#dz-placeholder').style.display = 'none';
-  const img = source === 'paste' ? $('#paste-preview') : $('#query-preview');
-  img.src = uri;
-  img.style.display = 'block';
-  $('#query-name').style.display = '';
-  $('#btn-search').disabled = false;
-  $('#results-empty').hidden = true;
-  $('#results').innerHTML = '';
 }
 
 // 点击选择区弹出原生文件对话框
