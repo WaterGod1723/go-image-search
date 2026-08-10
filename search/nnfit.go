@@ -187,6 +187,9 @@ func computePairs(q *Feat, refs []*Feat, qm *queryMasks, sczlSub [][5]float64) [
 		} else {
 			out[i] = append(out[i], 0, 0, 0, 0, 0)
 		}
+		if q.AttnStats != nil {
+			out[i] = append(out[i], q.AttnStats...)
+		}
 	}
 	return out
 }
@@ -423,11 +426,19 @@ func runTrain(root string, args []string) {
 
 	tPrep := time.Now()
 	sczlIx := buildSCZLRefs(root)
+	attnW, err := loadAttnModel()
+	if err != nil {
+		fatal(err)
+	}
+	if attnW != nil {
+		fmt.Printf("attention localization enabled\n")
+	}
 	type qPrep struct {
-		e       manifestEntry
-		trueIdx int
-		q       *Feat
-		qd      sczl.Descriptor
+		e        manifestEntry
+		trueIdx  int
+		q        *Feat
+		qd       sczl.Descriptor
+		attnStat []float64
 	}
 	prep := make([]qPrep, len(entries))
 	valid := make([]bool, len(entries))
@@ -437,7 +448,19 @@ func runTrain(root string, args []string) {
 		if err != nil {
 			return
 		}
-		px := extractQuery(img)
+		var px []Px
+		var astat []float64
+		if attnW != nil {
+			attn, stats := attnW.attnFor(img)
+			if attnExtractOn() {
+				px = extractQueryAttn(img, attn)
+			} else {
+				px = extractQuery(img)
+			}
+			astat = stats
+		} else {
+			px = extractQuery(img)
+		}
 		if len(px) == 0 {
 			return
 		}
@@ -451,7 +474,9 @@ func runTrain(root string, args []string) {
 		if ti < 0 {
 			return
 		}
-		prep[i] = qPrep{e: e, trueIdx: ti, q: buildFeat(px), qd: sczl.Extract(img)}
+		q := buildFeat(px)
+		q.AttnStats = astat
+		prep[i] = qPrep{e: e, trueIdx: ti, q: q, qd: sczl.Extract(img)}
 		valid[i] = true
 	})
 	used := prep[:0]
@@ -941,6 +966,13 @@ func runNNEval(root string, args []string) {
 	refs, refNames := buildRefIndex(root)
 	fmt.Printf("index: %d reference sprites\n", len(refs))
 	sczlIx := buildSCZLRefs(root)
+	attnW, err := loadAttnModel()
+	if err != nil {
+		fatal(err)
+	}
+	if attnW != nil {
+		fmt.Printf("attention localization enabled\n")
+	}
 	entries := loadManifest(filepath.Join(root, "test_set"))
 
 	nn1, nn3, nn5, base1, base3, base5 := 0, 0, 0, 0, 0, 0
@@ -963,11 +995,24 @@ func runNNEval(root string, args []string) {
 		if err != nil {
 			fatal(err)
 		}
-		px := extractQuery(img)
+		var px []Px
+		var astat []float64
+		if attnW != nil {
+			attn, stats := attnW.attnFor(img)
+			if attnExtractOn() {
+				px = extractQueryAttn(img, attn)
+			} else {
+				px = extractQuery(img)
+			}
+			astat = stats
+		} else {
+			px = extractQuery(img)
+		}
 		if len(px) == 0 {
 			return
 		}
 		q := buildFeat(px)
+		q.AttnStats = astat
 		if os.Getenv("NNFEAT") == "1" && e.Image == "sample_00004.png" {
 			dumpNNFeat(e.Image, e.Src, q, refs, refNames)
 		}

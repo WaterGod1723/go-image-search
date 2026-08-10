@@ -92,6 +92,10 @@ type Feat struct {
 	MinX, MinY int
 	MaxX, MaxY int
 
+	// AttnStats holds 8 attention-localization conditioning features (nil when
+	// the attention model is not enabled); they are appended to the pair block.
+	AttnStats []float64
+
 	// lazy, query-independent shape-context data for references (see refSC);
 	// unexported so gob skips them when the server index is cached.
 	scOnce sync.Once

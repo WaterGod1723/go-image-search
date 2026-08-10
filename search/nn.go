@@ -28,20 +28,26 @@ const (
 // Input dimension. Default: 93 = 31 pair features + 2*31 query statistics.
 // With NN_NOGM=1 the hand-coded gate/mono inductive-bias dims (pair-feature
 // indices 8,9) are dropped, so the pair block shrinks to 29 and the input to
-// 87 = 29 + 2*29. gob weights are dimension-specific; keep NN_NOGM consistent
-// between training and evaluation.
+// 87 = 29 + 2*29. With ATTN set, 8 attention-localization features are appended
+// to the pair block (pair 39, input 117). gob weights are dimension-specific;
+// keep NN_NOGM / ATTN consistent between training and evaluation.
 var (
-	nnInput = 93 // 31 pair features + 2*31 query statistics
-	nnP     = 31 // pair-feature block at the head of the input (indices 0..30)
-	noGm    = false
+	nnInput   = 93 // 31 pair features + 2*31 query statistics
+	nnP       = 31 // pair-feature block at the head of the input (indices 0..30)
+	noGm      = false
+	attnFeats = false // attention conditioning features enabled (ATTN set)
 )
 
 func init() {
 	if os.Getenv("NN_NOGM") == "1" {
 		noGm = true
-		nnInput = 87
 		nnP = 29
 	}
+	if os.Getenv("ATTN") != "" {
+		attnFeats = true
+		nnP += attnNStat
+	}
+	nnInput = 3 * nnP
 }
 
 // MLP is a 3-layer feed-forward network with ReLU hidden units and a sigmoid

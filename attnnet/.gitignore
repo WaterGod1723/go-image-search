@@ -1,0 +1,2 @@
+# Generated test set + trained weights (regenerable: go run ./cmd/gen, ./cmd/train)
+data/

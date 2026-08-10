@@ -93,6 +93,14 @@ func estimateBG(img *image.NRGBA) Px {
 // extractQuery isolates the sprite from a query canvas: bg detection, distance
 // mask, morphology (dilate+erode) to heal gaps, then keeps the largest blob.
 func extractQuery(img *image.NRGBA) []Px {
+	return extractQueryAttn(img, nil)
+}
+
+// extractQueryAttn is extractQuery plus attention refinement: each extracted
+// sprite pixel's coverage weight is multiplied by the attention value of its
+// 8x8 patch, so background/text leakage outside the learned icon region is
+// suppressed. attn is the 64-value attention map (nil to disable).
+func extractQueryAttn(img *image.NRGBA, attn []float64) []Px {
 	w, h := img.Bounds().Dx(), img.Bounds().Dy()
 	bg := estimateBG(img)
 
@@ -153,6 +161,7 @@ func extractQuery(img *image.NRGBA) []Px {
 
 	px := make([]Px, 0, len(best))
 	uniformA := os.Getenv("UA") == "1"
+	wA := len(attn) == attnGrid*attnGrid
 	for _, idx := range best {
 		x, y := idx%w, idx/w
 		i := img.PixOffset(x, y)
@@ -165,6 +174,9 @@ func extractQuery(img *image.NRGBA) []Px {
 				d = 1
 			}
 			p.A = d
+		}
+		if wA {
+			p.A *= attnWeightAt(attn, x, y, w, h)
 		}
 		px = append(px, p)
 	}
