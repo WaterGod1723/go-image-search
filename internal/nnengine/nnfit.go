@@ -274,16 +274,8 @@ func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descripto
 	for j := range outKeep {
 		outKeep[j] = j
 	}
-	// 与训练/评测一致的排序：先按颜色直方图族（hist）分组，再按 gate、
-	// 最后按神经网络相关度，保证展示与训练时的排序语义一致。
+	// 排序主键为 NN 相关度 score，保证展示相似度与排位单调一致。
 	sortKept := func(a, b int) bool {
-		if pairs[a][0] != pairs[b][0] {
-			return pairs[a][0] > pairs[b][0]
-		}
-		ga, gb := pairs[a][8], pairs[b][8]
-		if ga != gb {
-			return ga > gb
-		}
 		return score[a] > score[b]
 	}
 	insertionSort(outKeep, sortKept)
