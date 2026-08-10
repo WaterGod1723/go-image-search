@@ -51,10 +51,12 @@ else
 fi
 
 # ---- 安装/核对 wails CLI ----
-echo "==> 安装/核对 wails CLI ..."
-"$GO_CMD" install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0 || true
-
 WEXE="$(command -v wails 2>/dev/null || command -v wails.exe 2>/dev/null || true)"
+if [ -z "$WEXE" ]; then
+  echo "==> 未找到 wails，安装 wails CLI ..."
+  "$GO_CMD" install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0 || true
+  WEXE="$(command -v wails 2>/dev/null || command -v wails.exe 2>/dev/null || true)"
+fi
 if [ -z "$WEXE" ]; then
   echo "错误: 找不到 wails，请检查 GOPATH/bin 是否在 PATH。"
   exit 1
