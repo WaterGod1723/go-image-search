@@ -18,10 +18,32 @@ import (
 // can condition on query difficulty the way compositeAdaptive does by hand.
 
 const (
-	nnInput = 81 // 27 pair features + 2*27 query statistics
-	nnH1    = 96
-	nnH2    = 48
+	nnH1 = 96
+	nnH2 = 48
 )
+
+// nnInput is the per-pair feature count: 27 base pair features + 2*27 query
+// statistics (best / runner-up gap per feature). With SCZLSPLIT=1 the single
+// fused sczl score is replaced by its 6 sub-signals, so pair features go 27→32
+// and nnInput 81→96. It is a var (not a const) because the split feature set is
+// chosen at runtime; the MLP weight arrays are sized from it at construction.
+var nnInput = nnNewInputDim()
+
+func nnNewInputDim() int {
+	pf := 27
+	if os.Getenv("SCZLSPLIT") == "1" {
+		// 27 pair features with the single fused sczl score replaced by its 6
+		// sub-signals: 27 - 1 + 6 = 32.
+		pf = 32
+	}
+	return pf + 2*pf
+}
+
+// nnSczlSplit reports whether the split sczl sub-signal feature layout
+// (nnInput=96) is active. It must match the flag used at training time.
+func nnSczlSplit() bool {
+	return os.Getenv("SCZLSPLIT") == "1"
+}
 
 // MLP is a 3-layer feed-forward network with ReLU hidden units and a sigmoid
 // output (relevance in [0,1]).
@@ -162,8 +184,14 @@ func newGrads(m *MLP) *grads {
 // g. w is a per-sample loss weight used to balance positive/negative classes.
 func (m *MLP) backprop(g *grads, x []float64, y float64, w float64) {
 	p, h1, h2 := m.forward(x)
-	dO := (p - y) * w // dL/dz for BCE with sigmoid
+	m.backpropGrad(g, x, h1, h2, (p-y)*w) // dL/dz for BCE with sigmoid
+}
 
+// backpropGrad accumulates the gradient for one sample where the caller
+// supplies the output-layer gradient dO (e.g. (p-y) for BCE, or a listwise
+// softmax term). x's activations h1,h2 must be precomputed via an earlier
+// forward pass.
+func (m *MLP) backpropGrad(g *grads, x []float64, h1, h2 []float64, dO float64) {
 	// output layer
 	for i := 0; i < nnH2; i++ {
 		g.W3[i] += dO * h2[i]

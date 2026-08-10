@@ -144,6 +144,12 @@ go build -o search_nn.exe ./search
   - 启动自动构建索引（无缓存时），免手动"构建索引"
   - **两阶段粗筛**（`PREFILTER_N`，默认 50）：廉价签名全库扫 + 昂贵特征只在 top-N 做，
     recall 不变；1 万条库预计 ~18s → ~0.35s
+  - **特征重复计算共享**（`computePairs` 热路径）：
+    - `polarShiftSim`（best-shift 均值）与 `polarShiftDetail`（per-ring 明细）之前各做一遍
+      完整的 k 扫描，合并为 `polarShiftBoth` 单次扫描同时出两者 → polar shift 开销减半；
+    - `roundTripFactor` 之前重复算 `cosSim(Radial)`/`cosSim(AngMag)`，现复用 s[1]/s[2]。
+    - 实测 polar shift 相关 per-ref 85.9μs → 43.2μs（~2x），**数学等价、recall 不变**
+      （recall@1 96.6% / recall@3 98.3% 与优化前完全一致）。
 
 ### 最终评测结果（test_set，118 张有效查询）
 ```
@@ -158,6 +164,158 @@ neural (MLP)      : recall@1 = 114/118 (96.6%)   recall@3 = 116/118 (98.3%)   re
 - [ ] （可选）sczl 更多子特征（occ/fd 分开）或 SC/HOG 精排进 NN，继续压灰度难例
 - [ ] （可选）改进分割：处理 scale>1 溢出与细笔画丢失
 - [ ] （可选）服务端 SC 精排再提速：剩余 ~310ms 中精排仍占大头，可进一步并行化或降旋转步数（36→18）
+
+### 神经网络架构横向实验（2026，结论：baseline 已封顶）
+
+> 用纯 stdlib 手写实现，测了「常用 NN 架构」能否超过定稿的 pointwise MLP
+> （81→96→48，class-balanced BCE）。统一在同样 8000 训练图 / pointwise BCE /
+> 两阶段 rankNNPri + SC 精排（SCBLEND=0.7）下对比。结论：**没有架构超过 baseline**
+> （96.6%@1 / 98.3%@3），当前模型已触及该特征集封顶，剩余 miss 是分割受损
+> （2 张 home_work，真值 >top5）与 2 张灰色族 rank2-3 混淆，均非模型容量问题。
+
+| 架构（`search/nnarch.go` netMLP，可配深度/宽度/Dropout） | test recall@1 | @3 |
+| --- | --- | --- |
+| **baseline 81→96→48（定稿）** | **96.6%** | **98.3%** |
+| 81→128→64（更宽） | 96.6% | 97.5% |
+| 81→192→96（更宽） | 95.8% | 96.6% |
+| 81→128→96→48（更深） | 95.8% | 96.6% |
+| 81→128→128→96→48（更深） | 96.6% | 98.3% |
+| 81→128→96→48 + Dropout 0.8 | 95.8% | 96.6% |
+| 81→96→48 + Dropout 0.8 | 94.9% | 95.8% |
+
+损失函数实验（`search/nnlist.go`）：
+- **Listwise ListNet softmax（候选集 = 8 难负 + 3 随机）**：93.2%@1，**低于** pointwise。
+  softmax 归一化在小候选集上训练，与推理时全 66 候选的分布不一致，负样本相对分数
+  学不出来。
+- **Listwise ListNet softmax（候选集 = 全 66 ref，匹配推理分布）**：train@1 达 97.2%，
+  但 **test 崩到 68.6%**。softmax-CE 把 logit 推到极端/峰化，推理却用裸 sigmoid 输出
+  跨查询排序，分数不再有绝对含义 → overfit 到训练集的对齐分布，不可迁移。
+- **结论**：pointwise BCE 的绝对 sigmoid 分数天然可跨查询迁移，是当前数据量下最稳的目标；
+  listwise 需要足够多样的候选分布 + 校准/排序损失（ListMLE/LambdaRank）才可能受益，
+  在纯 stdlib 小数据下得不偿失。
+
+实现说明：
+- `nn.go` 新增 `forwardLogit`+`backpropGrad`（从给定输出梯度反传），`backprop` 改为委托；
+  `rankNN` 抽出 `rankNNPri`（以 predict 函数为参数），固定 MLP 与 netMLP 共用同一
+  两阶段排序 + SC 精排管线。
+- 命令：`search.exe . sweep train_set`（一次 prep 训 6 个架构，各自存
+  `weights_net*.gob`）；`search.exe . nnarch weights_netX.gob`（评测）。
+
+### 卷积/循环网络特征提取实验（2026，结论：纯 CNN 在原始网格上不敌特征 MLP）
+
+> 用户诉求：尝试 CNN / RNN 提取特征能否提升。在纯 stdlib（无框架）约束下，
+> 像素级 CNN 太重且易错，故采用**对齐的极坐标形状网格上的成对 1D CNN**
+> （`search/nncnn.go` `cnnNet`）：查询是参考图的旋转渲染，故每环角度剖面是对方的
+> 循环移位；沿角度轴做**循环卷积（旋转等变）+ 全局 max-pool（旋转不变）**即天然
+> 旋转不变 —— 这是极坐标 CNN 的标准做法。输入是 (query, ref) 对齐后的 2 通道
+> 16×24 网格，输出 relevancy。损失同为 pointwise BCE，与固定 MLP 完全可比。
+
+```text
+cnn（81→conv8×5→pool→32→1，30 epoch）：train@1 封顶 ~70.8%（epoch 11 即停滞）
+baseline pointwise MLP（81→96→48）  ：train@1 ~96%+，test 96.6%
+```
+
+- **结论**：纯 CNN 只看极坐标网格这一种特征族，而 MLP 吃 7 类手工特征
+  （hist/zern/radial/angmag/mask/sczl/polar 细节），CNN 远不够判别力，封顶 ~70%。
+  即便收敛，也不会超过特征 MLP —— 瓶颈在输入特征种类，不在网络结构。
+- **正确性验证**：对 conv 权重做数值梯度检查，analytic 与 numeric diff ≤ 5e-11，
+  反向传播实现无误（梯度下降有效，loss 单调降、train@1 升）。
+- **RNN 未单独实现**：极坐标网格沿环/角度的序列结构，其旋转不变信息（每环 FFT
+   幅度 AngMag）已作为 MLP 的 27 维 pair 特征 + 16 维 per-ring 细节喂给模型，
+   循环网络的序列建模与此高度冗余（§10 已证旋转不变 sczl 特征喂入无增益）。
+
+### 新特征族：拆分 sczl 子信号（2026，recall@1 96.6% → 97.5%，唯一提升）
+
+> 需求：引入新的特征族能否提升。此前 sczl 专家被折叠成**单个融合分**喂给 NN
+> （`GlobalScoreOf` = 0.20·occ + 0.20·ncc + 0.20·region + 0.25·fourier + 0.15·radial），
+> 网络无法学习各子信号的独立权重，且 **HOG 梯度方向信号根本没进模型**（融合式里没有）。
+> 做法：新增 `PreparedQuery.GlobalScoresRow`，把 6 个旋转不变子信号
+> （**occ / ncc / region / fourier / radial / hog**）作为独立 pair 特征喂给 NN，
+> 让网络自己学每个专家的权重（soft 神经路由的粒度细化）。
+
+```text
+SCZLSPLIT=1（32 pair 特征，nnInput 81→96，60 epoch）：
+  train@1 97.5%（baseline 96.4%）  test recall@1 = 115/118 (97.5%)  recall@3 = 98.3%
+SCZLSPLIT=1 + SCZL_NOHOG=1（5 子信号，去 HOG）：
+  test recall@1 = 113/118 (95.8%)  recall@3 = 96.6%
+baseline（27 pair，nnInput 81）：
+  test recall@1 = 114/118 (96.6%)  recall@3 = 98.3%
+```
+- **+0.9pp @1（114→115）**，miss 从 4 降到 3。这是本系列实验中首个真正超过定稿的改动。
+- **子信号消融（关键结论）**：`SCZL_NOHOG=1` 去掉 HOG 再训 → test 掉到 95.8%，**低于 baseline**。
+  这说明**增益几乎全部来自 HOG 梯度方向信号**（此前完全没进模型的唯一子信号）；
+  而单纯把 occ/ncc/region/fd/rad 拆开（不引入新信息）反而过参数化/引入噪声，hurt test。
+  即：拆分本身不赚，**新增 HOG 特征族**才是 +0.9pp 的根源。
+- 剩余 3 miss：dashboard（灰网格族 grid_view/settings 混淆）、phone_in_talk（rank 2）、
+  home_work（分割受损，真值 >top5，见 §7 待办）。
+- 实现：
+  - `search/sczl/search.go`：`GlobalScoresRow`（6 子信号）+ `hogDisabled`（`SCZL_NOHOG` 消融开关）；
+    `GlobalScoresAll` 改返回 `[][]float64` 行。
+  - `search/nn.go`：`nnInput` 由 const 改 var（`nnNewInputDim`），`SCZLSPLIT=1` 时 pair 特征 27→32、
+    输入 81→96；`nnSczlSplit()` 判定。
+  - `search/nnfit.go`：`computePairs`/`buildPairDataScored` 的 sczl 参数由 `[]float64` 改 `[][]float64`；
+    `rankNN` 与 `buildPairData` 按 split 标志产出 1 或 6 个子信号。
+- 训练：`SCZLSPLIT=1 search.exe . train train_set weights_split.gob 60 0.002`；
+  评测：`SCZLSPLIT=1 search.exe . nn weights_split.gob`（注意训练/评测必须同布局）。
+- 风险：`nnInput` 变 var 后，`weights.gob`（81 维）只在 `SCZLSPLIT` 未设时兼容；server 需
+  在启动时按同一环境变量加载对应权重（`NN_WEIGHTS`）。
+
+### 分割改进：自适应阈值 + 更强闭运算（2026，97.5% → 99.2%，最大提升）
+
+> 需求：继续改进。诊断 `featcmp`/`segdiag` 发现两个 miss 的根因都在**分割**而非模型：
+> 1. **深色图标 + 深色背景**：`extractQuery` 用固定阈值 `rgbDist(p,bg) > 0.16`。icon
+>    是深灰 `#434343`，当背景也是深色（如 home_work 00109 背景 `#393560`，距离仅 0.132 <
+>    0.16）时，大部分图标被判为背景 → 只分割出 ~20% 像素（3575/18177），特征全错。
+> 2. **小图标 / 强旋转碎片化**：`dilate 1 + erode 1` 闭运算不足以把细线条旋转后断裂的
+>    碎片连通域合并回完整图标（home_work 00006 scale 0.74 被碎成 9 块）。
+
+改动（`search/sprite.go`）：
+- **`adaptiveFGMask`**：不再用固定 0.16，而是统计全图到背景距离的直方图，在背景噪声簇
+  与前景簇之间的谷底取自适应阈值（`adaptiveDistThreshold`），回退下限 ~0.12 保留细笔画。
+  对深色图标+深色背景：距离分布出现第二簇，阈值自动落在 gap 上，完整捕获图标。
+- **更强闭运算**（`CLOSED` env，默认 **3**）：默认 `dilate 3 + erode 3`，把旋转后断裂的
+  碎片连通合并回完整图标（原来 1 太少）。CLOSED=3 最优，4/5 会略擦除细内线。
+
+**结果（test_set，120 张全部有效）**：
+```text
+SCZLSPLIT=1 + CLOSED=3（默认）：recall@1 = 119/120 (99.2%)  recall@3 = 119/120 (99.2%)
+baseline（无 split）+ CLOSED=3  ：recall@1 = 116/120 (96.7%)
+```
+- recall@1 从 97.5% → **99.2%**（+1.7pp），且**分割失败的 2 张（00064 check_box、
+  00085 delete，均为深色背景）被救回**，120 张全部有效（此前 118 有效）。
+- 唯一剩余 miss：sample_00083 dashboard（灰色 2×2 网格 vs grid_view/settings 的
+  圆角/方角混淆，模型侧灰色族问题）。
+- **净 miss 轨迹**：96.6%(4) → 97.5%(3) → 98.3%(2) → **99.2%(1)**。
+- 训练数据用同一 `train_set` 生成（含深色背景），无需重训权重；`CLOSED`/自适应阈值只影响
+  `extractQuery`，训练与评测同管线自动一致。
+
+### 剩余 miss 攻坚：dashboard 灰色框类（2026，结论 = 模型上限）
+
+> 用户要求"归档后继续攻坚"。唯一剩余 miss = `sample_00083` dashboard_76dp（-160° 旋转，
+> 深灰 #434343 图标 on #4dae7e 背景，含 HOT672/热卖63 文字），模型误判为 grid_view。
+> 用 `trneval`/`trnmiss`/`pairdump`/`nnall` 等诊断工具定位根因。
+
+**分批诊断结论**：
+1. **文字污染**：q83 分割 N=52673（参考 23695），`extractQuery` 保留全部内部连通域，
+   把"热卖63/HOT672"文字也算进特征。但 `TEXTSKIP=1`（保最大连通域+近邻碎片）过滤文字后
+   dashboard 的 NN 分仍低（0.42，grid_view 0.93），且**引入 3 个新 miss**（supervisor_
+   account/account_balance，灰色框类图标本身碎成多框）→ 文字不是根因，TEXTSKIP 不可行。
+2. **固有特征重叠**：dashboard 与 grid_view/calculate/account_balance/check_box 都是
+   灰色框类，颜色同 #434343、mask/polar 高度重叠（dashboard vs grid mask=0.60 vs 0.60、
+   polar=0.65 vs 0.65），仅 angmag 略可分（0.50 vs 0.27）但训练集上 angmag 范围重叠大
+   （dashboard 0.36~0.99，grid 0.20~0.99），NN 学不出可靠边界。
+3. **训练集系统性混淆**：dashboard train recall@1=92.8%（误判 grid_view 3 次、calculate
+   5 次）；grid_view=82.0%（误判 dashboard 6 次、account_balance 4 次）。SC 精排（SCBLEND
+   0/0.5/0.7/0.9）对这两个的训练 recall 无改善。
+4. **dashboard 90° 非对称**：旋转对称性分析 = 90° 重叠仅 50%（180° 重叠 81%）。-160°
+   旋转后形状特征（zern rank 61、m64 rank 57）相对同类图标退化，而 grid_view 保留较好，
+   故 NN/blend 都给 grid_view 更高分。
+
+**结论**：dashboard 是**灰色框类图标固有的特征重叠难例**——颜色/形状/mask 与同类几乎
+不可分，非分割、非模型容量、非 SC 精排可解决。这是当前特征族（hist/zern/radial/angmag/
+polar/mask/sczl）的判别上限。**接受 99.2% (119/120) 为定稿**，若要再突破需引入能区分
+"圆角/方角、线宽、内部网格结构"的更高分辨率形状特征（像素级 CNN 或拓扑/骨架特征），
+超出纯 stdlib 当前方案的性价比。
 
 ## 8. 已知风险与备注
 
@@ -178,3 +336,92 @@ neural (MLP)      : recall@1 = 114/118 (96.6%)   recall@3 = 116/118 (98.3%)   re
 - **若库到百万级** 才需要：先学一个低维旋转不变 embedding，再上
   VP-tree / IVF（FAISS 式）/ HNSW。这是独立的大工程（需要额外训练 + ANN 库），
   当前 `image-search-test` 的纯 stdlib 约束下不建议提前做。
+
+## 10. Embedding 向量检索（低维欧氏距离，可索引）
+
+> 目标：把"以图搜图"变成向量检索——网络对单张图输出一个低维向量，检索时用
+> 欧氏距离做最近邻，参考侧向量可预计算/持久化/建 ANN 索引，查询只需一次前向 +
+> 距离扫描，比逐对打分更适合大规模库。
+
+### 方案（已实现）
+
+- **网络**（`search/embed.go` `EmbedNet`）：`输入 → 128 → 64 → 64 → Dim`（ReLU），
+  输出层为线性，embedding 使用前 L2 归一化（欧氏距离 == 余弦，有界 [0,2]）。
+- **输入**：只用**旋转不变**的单图特征 `embedInput` = Hist + Radial + AngMag + Zern + Mono。
+  查询是 ref 的任意旋转渲染，故 embedding 必须对该旋转不变两图才能直接比距离。
+  这是本方案成立的前提（Zern/Radial/AngMag 天然旋转不变）。
+- **训练**：**softmax 分类头**（66 个 ref 类）在 embedding 之上做交叉熵。
+  相比最初的 triplet hinge（实测 collapse 到随机），分类损失稳定得多，且 embedding
+  层自然学到旋转不变、类间可分的紧凑表示。推理时丢弃分类头，只用 embedding 层。
+- **检索**：`rankEmbed` 对查询 embedding 与所有参考 embedding 求欧氏距离排序。
+  参考 embedding 可预计算（server 启动时 `addEmb` 一次性算好，存进 indexEntry.Embed）。
+- **命令**：`search.exe . embt train_set embweights.gob [epochs] [lr] [dim]` 训练；
+  `search.exe . emb embweights.gob` 评测；server 用 `EMB_WEIGHTS` 环境变量指定权重
+  （默认 `<root>/embweights.gob`），/api/search 优先用 embedding，缺失则回退 NN/adaptive。
+
+### 评测结果（test_set，118 张有效查询）
+
+```
+embedding (dim=32, 8000 train, 60ep, SCBLEND=0.5): recall@1=107/118 (90.7%)  recall@3=109/118 (92.4%)  recall@5=110/118 (93.2%)
+embedding (dim=32, 8000 train, 60ep, SCBLEND=0.7): recall@1=105/118 (89.0%)  @3=92.4%  @5=93.2%
+embedding (dim=32, 8000 train, 60ep, 无 SC 精排):  recall@1=104/118 (88.1%)  @3=92.4%  @5=93.2%
+embedding (dim=32, 2000 train, 60ep): recall@1=84.7%  (训练规模↑ 明显提升)
+embedding (dim=64, 8000 train):        recall@1=85.6%  (维度↑ 不提升，甚至略降)
+raw 旋转不变特征直接距离（无训练）:   recall@1=74.6%
+baseline adaptive / neural MLP (§4):  92.4% / 96.6%
+```
+
+- **SC 精排调参是主要增益**：把 SCBLEND 从 0.7 调低到 0.5，recall@1 88.1%→90.7%。
+  给 SC 过多权重反而降（1.0 时仅 44%），说明低维 embedding 距离已能分离大部分类，
+  SC 只负责重排灰白描边族内部的并列；SCBLEND 反映"embedding 为主、SC 为辅"。
+  SCTOP（6~30）不敏感，保持默认 12。
+- 加 SC 精排本身（0.7）只 +0.9pp；真正把差距缩小的是 blend 调优。
+- **维度 32 已接近最优**：64 维反而降，说明判别力瓶颈在输入特征而非模型容量。
+- 剩余 miss 集中在灰白描边族（edit_square / perm_phone / support_agent /
+  account_balance / home_work）与若干黄色族（zufangfangdai / fuyejianzhi），
+  这些图标颜色相同、形状相近，低维 embedding 难以单靠距离分开。
+- 前期教训：triplet hinge 在纯 stdlib 无框架下易 collapse（训练到 70% 后骤降到随机），
+  改为 softmax 分类后训练稳定单调收敛。
+
+### 与 pointwise MLP 的对比
+
+| 维度 | pointwise MLP (§2) | embedding（本方案） |
+| --- | --- | --- |
+| 输入 | (query,ref) pair 81 维 | 单图旋转不变特征 ~546 维 |
+| 输出 | 1 维 sigmoid 分数 | Dim 维向量（默认 32） |
+| 损失 | class-balanced BCE | softmax CE（分类） |
+| 检索 | 逐对前向打分 | 欧氏距离最近邻 |
+| 参考侧 | 无法预计算 | **可预计算/索引/ANN** |
+| recall@1 | 96.6% | 88.1% |
+| 大库扩展 | 两阶段粗筛 ~0.35s/万条 | 低维暴力快，可上 HNSW |
+
+### 待办（可选）
+- [x] embedding + shape-context 精排：对 top-N 做 SC 复排，并把 SCBLEND 调低到 0.5
+      （embedding 为主、SC 为辅），recall@1 88.1%→90.7%
+- [x] 拆 sczl 特征喂入 embedding 输入（消融见下）：旋转不变特征无增益，旋转敏感特征有害
+- [ ] 用 HNSW/IVF 替换暴力扫描，验证百万级库的向量检索
+
+### sczl 特征拆开输入 embedding 的消融结论
+
+> 需求：把 `search/sczl` 的各特征拆开作为 embedding 网络的输入，看哪个有效。
+> 实现：`embedInput` 现支持 `EMBSCZL` env（逗号分隔 `fourier,radial,solidity,occ16,occ32`）
+> 选择拼接哪些 sczl 签名；query 用 `sczl.Extract(img)`（整图），ref 用 1:1 对齐的 sczl 描述子。
+
+| EMBSCZL | 输入维 | recall@1（2000 训练）| 结论 |
+| --- | --- | --- | --- |
+| （空，纯 feat） | 546 | 83.1% | baseline |
+| fourier,radial | 594 | 83.1% | 无增益，与已有 Radial/AngMag 冗余 |
+| fourier | 578 | 83.1% | 无增益 |
+| solidity | 547 | 83.1% | 无增益 |
+| occ16 | 802 | 71.2% | **有害** |
+
+- **旋转不变特征（Fourier/Radial/Solidity）无增益**：sczl 的 Radial 桶数（16）与
+  buildFeat 的 nRing（16）一致，Fourier（轮廓幅度）的信息与已有 AngMag（每环 FFT 幅度）
+  高度重叠，网络学不到新判别力。
+- **旋转敏感特征（Occupancy16/32）有害**：Occupancy 是"质心+R98 归一化框架"内裁剪，
+  图标在框内旋转后栅格值改变，query（旋转渲染）与 ref 无法对齐，破坏 embedding 距离
+  的旋转不变前提，判别力反而下降（83.1%→71.2%）。
+- **结论**：sczl 的判别力依赖旋转扫描对齐（`GlobalScoreAll` 逐对计算），不适合作为
+  单图 embedding 输入；它作为 NN 的 pair 特征（§2 soft 路由）才是正确用法。embedding
+  侧保留纯旋转不变 buildFeat 特征即可，sczl 特征作为可选扩展保留（`EMBSCZL`），
+  默认关闭。

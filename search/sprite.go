@@ -1,12 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"image"
 	"image/color"
 	"image/png"
 	"math"
 	"os"
+	"strconv"
 )
 
 // Px is one pixel of a sprite (in sprite-local coordinates during feature
@@ -65,6 +65,72 @@ func rgbDist(a, b Px) float64 {
 }
 
 // estimateBG finds the dominant flat background color (mode of binned colors).
+// adaptiveFGMask thresholds the query against its estimated background using an
+// adaptive cutoff derived from the pixel-to-background distance distribution,
+// instead of a fixed 0.16. It returns the mask and the foreground pixel count.
+func adaptiveFGMask(img *image.NRGBA, bg Px) ([]bool, int) {
+	w, h := img.Bounds().Dx(), img.Bounds().Dy()
+	mask := make([]bool, w*h)
+	// Histogram of distance-to-bg over all pixels (256 bins, distances in
+	// [0,1] mapped to [0,255]).
+	const bins = 256
+	var dist [bins]int
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			i := img.PixOffset(x, y)
+			p := Px{R: img.Pix[i], G: img.Pix[i+1], B: img.Pix[i+2]}
+			d := rgbDist(p, bg)
+			bi := int(d * bins)
+			if bi >= bins {
+				bi = bins - 1
+			}
+			dist[bi]++
+		}
+	}
+
+	th := adaptiveDistThreshold(dist)
+	fg := 0
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			i := img.PixOffset(x, y)
+			p := Px{R: img.Pix[i], G: img.Pix[i+1], B: img.Pix[i+2]}
+			if rgbDist(p, bg) > float64(th)/256 {
+				mask[y*w+x] = true
+				fg++
+			}
+		}
+	}
+	return mask, fg
+}
+
+// adaptiveDistThreshold picks a cutoff index in the distance histogram. The
+// background is a dense low-distance peak; the foreground is a second mass at
+// higher distance. We walk upward from the background peak and pick the first
+// bin that is a local valley (a gap), falling back to a floor of ~0.12 so we
+// never lose thin AA strokes. dist is in units of bins (0..255 == distance
+// 0..1).
+func adaptiveDistThreshold(dist [256]int) int {
+	// find the background peak (most pixels) in the low half.
+	bgPeak := 0
+	for i := 1; i < 256; i++ {
+		if dist[i] > dist[bgPeak] {
+			bgPeak = i
+		}
+	}
+	// walk up from bgPeak; the threshold is the first significant valley.
+	for i := bgPeak + 1; i < 255; i++ {
+		if dist[i] < dist[i-1] && dist[i] < dist[i+1] && dist[i] < dist[bgPeak]/8 {
+			return i
+		}
+	}
+	// no clear valley: fall back to a fixed floor that keeps thin strokes.
+	floor := 30 // ~0.12 * 256
+	if low := bgPeak + 12; low > floor {
+		floor = low
+	}
+	return floor
+}
+
 func estimateBG(img *image.NRGBA) Px {
 	// bin: 16x16x16 = 4096 bins
 	w := img.Bounds().Dx()
@@ -84,9 +150,9 @@ func estimateBG(img *image.NRGBA) Px {
 			best, bestbi = c, i
 		}
 	}
-	r := (bestbi / (dim * dim)) * 256 / dim + 8
-	g := ((bestbi / dim) % dim) * 256 / dim + 8
-	bl := (bestbi % dim) * 256 / dim + 8
+	r := (bestbi/(dim*dim))*256/dim + 8
+	g := ((bestbi/dim)%dim)*256/dim + 8
+	bl := (bestbi%dim)*256/dim + 8
 	return Px{R: uint8(r), G: uint8(g), B: uint8(bl)}
 }
 
@@ -96,33 +162,32 @@ func extractQuery(img *image.NRGBA) []Px {
 	w, h := img.Bounds().Dx(), img.Bounds().Dy()
 	bg := estimateBG(img)
 
-	// fg mask with threshold relative to bg flatness
-	mask := make([]bool, w*h)
-	th := 0.16
-	if v := os.Getenv("THRESH"); v != "" {
-		fmt.Sscanf(v, "%f", &th)
-	}
-	fgCount := 0
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			i := img.PixOffset(x, y)
-			p := Px{R: img.Pix[i], G: img.Pix[i+1], B: img.Pix[i+2]}
-			if rgbDist(p, bg) > th {
-				mask[y*w+x] = true
-				fgCount++
-			}
-		}
-	}
+	// fg mask with threshold relative to bg flatness. The threshold is
+	// adaptive: we histogram each pixel's distance to the estimated background
+	// and pick a value in the gap between the background-noise cluster (tiny
+	// distances) and the foreground cluster. A fixed threshold fails when the
+	// sprite is a dark color on a dark background (e.g. #434343 icon on
+	// #393560 bg) where the naive 0.16 Euclidean cutoff is below the true
+	// icon-to-bg distance — it would discard most of the icon.
+	mask, fgCount := adaptiveFGMask(img, bg)
 	if fgCount == 0 {
 		return nil
 	}
 
-	// light close: dilate 1 + erode 1 heals single-pixel AA gaps in strokes while
-	// keeping thin interiors (a heavier 2+2 erases them entirely).
-	for pass := 0; pass < 1; pass++ {
+	// morphological close: dilate D + erode D heals gaps in thin strokes while
+	// keeping interiors. D=1 handles single-pixel AA gaps; a larger D (via
+	// CLOSED) merges fragments of a thin rotated sprite at the cost of erasing
+	// the thinnest interiors.
+	closeD := 3
+	if v := os.Getenv("CLOSED"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			closeD = n
+		}
+	}
+	for pass := 0; pass < closeD; pass++ {
 		mask = dilate(mask, w, h)
 	}
-	for pass := 0; pass < 1; pass++ {
+	for pass := 0; pass < closeD; pass++ {
 		mask = erode(mask, w, h)
 	}
 

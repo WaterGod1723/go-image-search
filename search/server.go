@@ -90,7 +90,7 @@ type server struct {
 	// neural ranker: nn != nil enables the trained MLP (with the sczl
 	// color-agnostic expert) in /api/search; otherwise falls back to the
 	// hand-tuned compositeAdaptive.
-	nn    *MLP
+	nn     *MLP
 	sczlIx *sczl.Index
 
 	qCache map[[32]byte]*searchResponse
@@ -440,6 +440,7 @@ func (s *server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := buildFeat(px)
+	qd := sczl.Extract(img)
 	s.mu.RLock()
 	refs := make([]*Feat, len(s.entries))
 	for i := range s.entries {
@@ -453,7 +454,7 @@ func (s *server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if nn != nil {
 		// neural ranker: trained MLP fusing our features + the sczl expert,
 		// with shape-context shortlist refinement.
-		ranked = rankNN(q, refs, nn, sczlIx, sczl.Extract(img))
+		ranked = rankNN(q, refs, nn, sczlIx, qd)
 	} else {
 		ranked = compositeAdaptive(q, refs)
 	}

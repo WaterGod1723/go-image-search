@@ -42,3 +42,8 @@ train_set/
 # OS files
 .DS_Store
 Thumbs.db
+build/
+docs/
+frontend/
+ml/
+test_pngs_trimmed/

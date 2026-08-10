@@ -86,20 +86,12 @@ func (qm *queryMasks) score(rb []float64) float64 {
 	return best
 }
 
-// pairFeat computes the 8 per-(query,ref) similarities fed to the network: the
-// 7 from scores() plus the rotation-aligned mask overlap (cached).
-func pairFeat(q, r *Feat, qm *queryMasks) []float64 {
-	s := scores(q, r)
-	return []float64{s[0], s[1], s[2], s[3], s[4], s[5], s[6], qm.score(r.Mask48)}
-}
-
-// polarShiftDetail returns, per ring, the shape cosine at the best global
-// rotation (the same shift polarShiftSim finds), giving the network the
-// rotation-invariant silhouette profile instead of just its aggregate — this is
-// what separates the gray-outline icon families the aggregate scores tie on.
-func polarShiftDetail(q, r *Feat) []float64 {
+// polarShiftBoth computes, in a single shift scan, both the best global-rotation
+// mean cosine (what polarShiftSim reports) and the per-ring detail vector (what
+// polarShiftDetail reports). They previously scanned the same k range twice.
+func polarShiftBoth(q, r *Feat) (float64, []float64) {
 	bestK := 0
-	best := -1E18
+	best := -1e18
 	for k := -nAng; k <= nAng; k++ {
 		var acc float64
 		n := 0
@@ -139,7 +131,10 @@ func polarShiftDetail(q, r *Feat) []float64 {
 			out[ri] = dp / math.Sqrt(dq*dr)
 		}
 	}
-	return out
+	if best < 0 {
+		best = 0
+	}
+	return best, out
 }
 
 // computePairs builds the full pair vector per ref: the base similarities plus
@@ -149,14 +144,27 @@ func polarShiftDetail(q, r *Feat) []float64 {
 //     family can never outrank the true one;
 //   - mono: whether the query sprite is monochrome (0/1), letting the model
 //     condition on gray vs colorful queries.
+//
 // plus the 16 per-ring shape-detail cosines and the sczl color-agnostic global
 // similarity (a second, independent expert whose error set differs — the
 // network learns when to trust it, i.e. soft neural routing).
-func computePairs(q *Feat, refs []*Feat, qm *queryMasks, sczlScores []float64) [][]float64 {
+func computePairs(q *Feat, refs []*Feat, qm *queryMasks, sczlRows [][]float64) [][]float64 {
 	out := make([][]float64, len(refs))
 	hists := make([]float64, len(refs))
+	details := make([][]float64, len(refs))
 	for i, r := range refs {
-		s := scores(q, r)
+		// s[3] (best-shift polar shape) and the per-ring detail come from the
+		// SAME scan (polarShiftBoth) — previously polarShiftSim and
+		// polarShiftDetail each scanned the full k range. roundTripFactor (s[5])
+		// reuses s[1]/s[2] instead of re-computing the two cosines.
+		s := make([]float64, 7)
+		s[0] = histSim(q.Hist, r.Hist)
+		s[1] = cosSim(q.Radial, r.Radial)
+		s[2] = cosSim(q.AngMag, r.AngMag)
+		s[3], details[i] = polarShiftBoth(q, r)
+		s[4] = polarColSim(q, r)
+		s[5] = 0.5*s[1] + 0.5*s[2] // roundTripFactor
+		s[6] = cosSim(q.Zern, r.Zern)
 		hists[i] = s[0]
 		out[i] = []float64{s[0], s[1], s[2], s[3], s[4], s[5], s[6], qm.score(r.Mask48)}
 	}
@@ -171,15 +179,15 @@ func computePairs(q *Feat, refs []*Feat, qm *queryMasks, sczlScores []float64) [
 	if q.Mono {
 		mono = 1
 	}
-	for i, r := range refs {
+	for i := range refs {
 		gate := 0.0
 		if hists[i] >= bestHist-eps {
 			gate = 1
 		}
 		out[i] = append(out[i], gate, mono)
-		out[i] = append(out[i], polarShiftDetail(q, r)...)
-		if sczlScores != nil {
-			out[i] = append(out[i], sczlScores[i])
+		out[i] = append(out[i], details[i]...)
+		if sczlRows != nil {
+			out[i] = append(out[i], sczlRows[i]...)
 		} else {
 			out[i] = append(out[i], 0)
 		}
@@ -191,17 +199,26 @@ func computePairs(q *Feat, refs []*Feat, qm *queryMasks, sczlScores []float64) [
 // and the sczl global scores for a query, in one place shared by training and
 // evaluation so the NN never sees inconsistent feature layouts.
 func buildPairData(q *Feat, refs []*Feat, qm *queryMasks, sczlIx *sczl.Index, qd sczl.Descriptor) ([][]float64, []float64, []float64) {
-	var sczlScores []float64
+	var sczlRows [][]float64
 	if sczlIx != nil && qd.Valid {
-		sczlScores = sczlIx.GlobalScoresAll(qd, 36)
+		pq := sczl.PrepareQuery(qd, 36)
+		sczlRows = make([][]float64, len(refs))
+		for i := range refs {
+			row := pq.GlobalScoresRow(sczlIx.Entries[i])
+			if !nnSczlSplit() {
+				row = row[:1]
+			}
+			sczlRows[i] = row
+		}
 	}
-	return buildPairDataScored(q, refs, qm, sczlScores)
+	return buildPairDataScored(q, refs, qm, sczlRows)
 }
 
-// buildPairDataScored is buildPairData with the sczl scores supplied by the
-// caller (e.g. computed only for a pre-filtered shortlist).
-func buildPairDataScored(q *Feat, refs []*Feat, qm *queryMasks, sczlScores []float64) ([][]float64, []float64, []float64) {
-	pairs := computePairs(q, refs, qm, sczlScores)
+// buildPairDataScored is buildPairData with the sczl row scores supplied by the
+// caller (e.g. computed only for a pre-filtered shortlist). Each row holds the
+// fused single score (SCZLSPLIT unset) or the 6 sub-signals (SCZLSPLIT=1).
+func buildPairDataScored(q *Feat, refs []*Feat, qm *queryMasks, sczlRows [][]float64) ([][]float64, []float64, []float64) {
+	pairs := computePairs(q, refs, qm, sczlRows)
 	best, gap := queryStats(pairs)
 	return pairs, best, gap
 }
@@ -282,6 +299,13 @@ func nnVec(pair, best, gap []float64) []float64 {
 // recall@1/@3 is preserved while big libraries avoid the per-ref mask/sczl
 // sweep for all but N entries.
 func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descriptor) []int {
+	return rankNNPri(q, refs, func(x []float64) float64 { return m.predict(x) }, sczlIx, qd)
+}
+
+// rankNNPri is rankNN parameterized by the relevance predictor, so different
+// architectures (the fixed MLP, the flexible netMLP, etc.) share the same
+// two-stage ranking + SC refinement pipeline.
+func rankNNPri(q *Feat, refs []*Feat, predict func([]float64) float64, sczlIx *sczl.Index, qd sczl.Descriptor) []int {
 	prefN := prefilterN()
 
 	// ---- stage 1: cheap pre-filter over all refs ----
@@ -299,22 +323,26 @@ func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descripto
 
 	// ---- stage 2: full features + NN on the shortlist ----
 	qm := newQueryMasks(q.Mask48)
-	var sczlScores []float64
+	var sczlRows [][]float64
 	if sczlIx != nil && qd.Valid {
 		pq := sczl.PrepareQuery(qd, 36)
-		sczlScores = make([]float64, nKeep)
+		sczlRows = make([][]float64, nKeep)
 		for j, ki := range keep {
-			sczlScores[j] = pq.GlobalScoreOf(sczlIx.Entries[ki])
+			if nnSczlSplit() {
+				sczlRows[j] = pq.GlobalScoresRow(sczlIx.Entries[ki])
+			} else {
+				sczlRows[j] = []float64{pq.GlobalScoreOf(sczlIx.Entries[ki])}
+			}
 		}
 	}
 	keptRefs := make([]*Feat, nKeep)
 	for j, ki := range keep {
 		keptRefs[j] = refs[ki]
 	}
-	pairs, best, gap := buildPairDataScored(q, keptRefs, qm, sczlScores)
+	pairs, best, gap := buildPairDataScored(q, keptRefs, qm, sczlRows)
 	score := make([]float64, nKeep)
 	for j := range keptRefs {
-		score[j] = m.predict(nnVec(pairs[j], best, gap))
+		score[j] = predict(nnVec(pairs[j], best, gap))
 	}
 	outKeep := make([]int, nKeep)
 	for j := range outKeep {
@@ -888,12 +916,11 @@ func pxFromEntry(root, name string) []Px {
 	return extractQuery(img)
 }
 
-
 // so a failing query can be inspected feature-by-feature (which features rank
 // the true ref highest, which do not).
 func dumpNNFeat(name, want string, q *Feat, refs []*Feat, refNames []string) {
 	type row struct {
-		name                       string
+		name                                        string
 		hist, radial, ang, shp, col, zern, m64, m32 float64
 	}
 	rows := make([]row, len(refs))
@@ -922,7 +949,6 @@ func dumpNNFeat(name, want string, q *Feat, refs []*Feat, refNames []string) {
 	fmt.Printf("   want(%s) is at row-index %d by hist\n", want, wi)
 }
 
-
 func runNNEval(root string, args []string) {
 	weightsPath := "weights.gob"
 	if len(args) > 0 {
@@ -938,7 +964,10 @@ func runNNEval(root string, args []string) {
 	entries := loadManifest(filepath.Join(root, "test_set"))
 
 	nn1, nn3, nn5, base1, base3, base5 := 0, 0, 0, 0, 0, 0
-	type miss struct{ img, want string; got []string }
+	type miss struct {
+		img, want string
+		got       []string
+	}
 	var nnMisses []miss
 	type evalRow struct {
 		img, want string
