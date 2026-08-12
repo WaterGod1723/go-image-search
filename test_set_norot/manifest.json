@@ -1,0 +1,3672 @@
+[
+  {
+    "image": "sample_00000.png",
+    "src": "shuidianranqi.png",
+    "crop": [
+      0,
+      82,
+      300,
+      136
+    ],
+    "canvas": [
+      571,
+      598
+    ],
+    "bg_hex": "#58cfc9",
+    "rotation": 0,
+    "scale": 0.9631346868444496,
+    "translate": [
+      43,
+      -20
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "SALE971",
+        "size": 156,
+        "x": 0,
+        "y": 40,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00001.png",
+    "src": "jiayoutingche.png",
+    "crop": [
+      0,
+      26,
+      300,
+      248
+    ],
+    "canvas": [
+      415,
+      454
+    ],
+    "bg_hex": "#96528e",
+    "rotation": 0,
+    "scale": 0.9890723948494489,
+    "translate": [
+      -33,
+      66
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "HOT5",
+        "size": 66,
+        "x": 394,
+        "y": 260,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00002.png",
+    "src": "dianyingyanchu.png",
+    "crop": [
+      0,
+      32,
+      300,
+      236
+    ],
+    "canvas": [
+      564,
+      701
+    ],
+    "bg_hex": "#876ba0",
+    "rotation": 0,
+    "scale": 0.9291815464648672,
+    "translate": [
+      109,
+      205
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "领券",
+        "size": 99,
+        "x": 7,
+        "y": 351,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00003.png",
+    "src": "edit_square.png",
+    "crop": [
+      48,
+      0,
+      214,
+      212
+    ],
+    "canvas": [
+      442,
+      447
+    ],
+    "bg_hex": "#6ca665",
+    "rotation": 0,
+    "scale": 1.0588770315222633,
+    "translate": [
+      102,
+      -39
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00004.png",
+    "src": "corporate_fare.png",
+    "crop": [
+      35,
+      19,
+      228,
+      206
+    ],
+    "canvas": [
+      604,
+      550
+    ],
+    "bg_hex": "#984124",
+    "rotation": 0,
+    "scale": 2.0058046760412127,
+    "translate": [
+      -28,
+      -7
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00005.png",
+    "src": "fushixiebao.png",
+    "crop": [
+      0,
+      65,
+      300,
+      170
+    ],
+    "canvas": [
+      521,
+      614
+    ],
+    "bg_hex": "#854c4f",
+    "rotation": 0,
+    "scale": 0.9883619746154625,
+    "translate": [
+      -73,
+      -193
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "商店",
+        "size": 139,
+        "x": 390,
+        "y": 138,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00006.png",
+    "src": "dache.png",
+    "crop": [
+      0,
+      48,
+      300,
+      204
+    ],
+    "canvas": [
+      467,
+      445
+    ],
+    "bg_hex": "#282592",
+    "rotation": 0,
+    "scale": 1.0590302600972503,
+    "translate": [
+      -66,
+      38
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "爆款",
+        "size": 65,
+        "x": 300,
+        "y": 7,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "查看332",
+        "size": 49,
+        "x": 456,
+        "y": 128,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00007.png",
+    "src": "tijianbaojian.png",
+    "crop": [
+      0,
+      61,
+      300,
+      178
+    ],
+    "canvas": [
+      441,
+      427
+    ],
+    "bg_hex": "#32d4d8",
+    "rotation": 0,
+    "scale": 0.7319821793945335,
+    "translate": [
+      -7,
+      -141
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "商店431",
+        "size": 74,
+        "x": 21,
+        "y": 114,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "商店",
+        "size": 55,
+        "x": 31,
+        "y": 375,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00008.png",
+    "src": "shuiguo.png",
+    "crop": [
+      0,
+      24,
+      300,
+      252
+    ],
+    "canvas": [
+      690,
+      690
+    ],
+    "bg_hex": "#4aadd2",
+    "rotation": 0,
+    "scale": 1.035,
+    "translate": [
+      9,
+      -81
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "商店",
+        "size": 120,
+        "x": 100,
+        "y": 331,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00009.png",
+    "src": "jiangjinjixiao.png",
+    "crop": [
+      6,
+      0,
+      288,
+      300
+    ],
+    "canvas": [
+      542,
+      666
+    ],
+    "bg_hex": "#a1dab0",
+    "rotation": 0,
+    "scale": 1.2517491508135803,
+    "translate": [
+      12,
+      -55
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00010.png",
+    "src": "dache.png",
+    "crop": [
+      0,
+      48,
+      300,
+      204
+    ],
+    "canvas": [
+      385,
+      346
+    ],
+    "bg_hex": "#bfd36a",
+    "rotation": 0,
+    "scale": 0.5324626510139919,
+    "translate": [
+      -2,
+      60
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00011.png",
+    "src": "lingshi.png",
+    "crop": [
+      3,
+      0,
+      294,
+      300
+    ],
+    "canvas": [
+      479,
+      479
+    ],
+    "bg_hex": "#bab3aa",
+    "rotation": 0,
+    "scale": 1.1852410613430016,
+    "translate": [
+      -47,
+      -52
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "详情",
+        "size": 76,
+        "x": 307,
+        "y": 406,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00012.png",
+    "src": "contract_edit.png",
+    "crop": [
+      47,
+      15,
+      214,
+      214
+    ],
+    "canvas": [
+      402,
+      407
+    ],
+    "bg_hex": "#82e154",
+    "rotation": 0,
+    "scale": 1.1005360118359628,
+    "translate": [
+      -7,
+      2
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "详情",
+        "size": 70,
+        "x": 392,
+        "y": 45,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "详情",
+        "size": 62,
+        "x": 43,
+        "y": 16,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "旗舰",
+        "size": 73,
+        "x": 28,
+        "y": 231,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00013.png",
+    "src": "fact_check.png",
+    "crop": [
+      36,
+      17,
+      229,
+      203
+    ],
+    "canvas": [
+      688,
+      616
+    ],
+    "bg_hex": "#4d4892",
+    "rotation": 0,
+    "scale": 1.210480349344978,
+    "translate": [
+      50,
+      -45
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "满减",
+        "size": 102,
+        "x": 171,
+        "y": 10,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "HOT",
+        "size": 65,
+        "x": 47,
+        "y": 226,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00014.png",
+    "src": "phone_in_talk.png",
+    "crop": [
+      45,
+      24,
+      204,
+      204
+    ],
+    "canvas": [
+      504,
+      504
+    ],
+    "bg_hex": "#8facdc",
+    "rotation": 0,
+    "scale": 1.9160762898753914,
+    "translate": [
+      -27,
+      24
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00015.png",
+    "src": "dianyingyanchu.png",
+    "crop": [
+      0,
+      32,
+      300,
+      236
+    ],
+    "canvas": [
+      643,
+      537
+    ],
+    "bg_hex": "#3bc034",
+    "rotation": 0,
+    "scale": 1.181998673189426,
+    "translate": [
+      65,
+      -97
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "点击330",
+        "size": 75,
+        "x": 18,
+        "y": 221,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00016.png",
+    "src": "tijianbaojian.png",
+    "crop": [
+      0,
+      61,
+      300,
+      178
+    ],
+    "canvas": [
+      450,
+      434
+    ],
+    "bg_hex": "#765a2f",
+    "rotation": 0,
+    "scale": 0.9135229367522865,
+    "translate": [
+      -69,
+      -38
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00017.png",
+    "src": "xihumeizhuang.png",
+    "crop": [
+      0,
+      47,
+      300,
+      206
+    ],
+    "canvas": [
+      724,
+      724
+    ],
+    "bg_hex": "#ddbcb2",
+    "rotation": 0,
+    "scale": 2.039365113165013,
+    "translate": [
+      -44,
+      24
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "福利483",
+        "size": 123,
+        "x": 104,
+        "y": 651,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00018.png",
+    "src": "2026年7月16日 19_13_32.png",
+    "crop": [
+      0,
+      0,
+      1024,
+      1536
+    ],
+    "canvas": [
+      369,
+      370
+    ],
+    "bg_hex": "#533ae4",
+    "rotation": 0,
+    "scale": 0.10810546875,
+    "translate": [
+      21,
+      -64
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "领券949",
+        "size": 86,
+        "x": 364,
+        "y": 20,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00019.png",
+    "src": "baoxianfeiyong.png",
+    "crop": [
+      0,
+      8,
+      300,
+      284
+    ],
+    "canvas": [
+      550,
+      635
+    ],
+    "bg_hex": "#c4c6c4",
+    "rotation": 0,
+    "scale": 1.0218724863930804,
+    "translate": [
+      79,
+      142
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "查看519",
+        "size": 149,
+        "x": 125,
+        "y": 19,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "商店116",
+        "size": 76,
+        "x": 217,
+        "y": 21,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00020.png",
+    "src": "home_work_76dp_434343_FILL0_wght400_GRAD0_opsz48.png",
+    "crop": [
+      28,
+      27,
+      246,
+      202
+    ],
+    "canvas": [
+      411,
+      438
+    ],
+    "bg_hex": "#2ca924",
+    "rotation": 0,
+    "scale": 1.0262932387798058,
+    "translate": [
+      -38,
+      -28
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "SALE",
+        "size": 45,
+        "x": 366,
+        "y": 317,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "会员",
+        "size": 45,
+        "x": 265,
+        "y": 406,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00021.png",
+    "src": "chaoshibianli.png",
+    "crop": [
+      0,
+      41,
+      300,
+      218
+    ],
+    "canvas": [
+      682,
+      682
+    ],
+    "bg_hex": "#a6c8e2",
+    "rotation": 0,
+    "scale": 1.8908482415190482,
+    "translate": [
+      41,
+      17
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "SALE",
+        "size": 72,
+        "x": 51,
+        "y": 639,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00022.png",
+    "src": "baoxiaotuikuan.png",
+    "crop": [
+      0,
+      28,
+      300,
+      244
+    ],
+    "canvas": [
+      480,
+      424
+    ],
+    "bg_hex": "#78af61",
+    "rotation": 0,
+    "scale": 1.004454525048356,
+    "translate": [
+      70,
+      -19
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "商店",
+        "size": 81,
+        "x": 35,
+        "y": 54,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "FREE",
+        "size": 94,
+        "x": 75,
+        "y": 348,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00023.png",
+    "src": "yinpin.png",
+    "crop": [
+      14,
+      0,
+      272,
+      300
+    ],
+    "canvas": [
+      451,
+      376
+    ],
+    "bg_hex": "#e0605d",
+    "rotation": 0,
+    "scale": 0.5640000000000001,
+    "translate": [
+      -57,
+      -37
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00024.png",
+    "src": "wenju.png",
+    "crop": [
+      0,
+      10,
+      300,
+      280
+    ],
+    "canvas": [
+      577,
+      609
+    ],
+    "bg_hex": "#5c1e7e",
+    "rotation": 0,
+    "scale": 1.3829138437833695,
+    "translate": [
+      62,
+      -93
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00025.png",
+    "src": "baoxianfeiyong.png",
+    "crop": [
+      0,
+      8,
+      300,
+      284
+    ],
+    "canvas": [
+      559,
+      580
+    ],
+    "bg_hex": "#c2ca1d",
+    "rotation": 0,
+    "scale": 1.258786944958722,
+    "translate": [
+      -64,
+      23
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "99",
+        "size": 70,
+        "x": 341,
+        "y": 2,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00026.png",
+    "src": "guolufei.png",
+    "crop": [
+      0,
+      24,
+      300,
+      252
+    ],
+    "canvas": [
+      473,
+      486
+    ],
+    "bg_hex": "#6daf24",
+    "rotation": 0,
+    "scale": 0.8205318629515358,
+    "translate": [
+      -101,
+      68
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "HOT633",
+        "size": 61,
+        "x": 467,
+        "y": 113,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00027.png",
+    "src": "zufangfangdai.png",
+    "crop": [
+      0,
+      27,
+      300,
+      246
+    ],
+    "canvas": [
+      476,
+      569
+    ],
+    "bg_hex": "#927be1",
+    "rotation": 0,
+    "scale": 1.0593773114621599,
+    "translate": [
+      -11,
+      43
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00028.png",
+    "src": "colors.png",
+    "crop": [
+      34,
+      20,
+      229,
+      213
+    ],
+    "canvas": [
+      631,
+      631
+    ],
+    "bg_hex": "#8e55c3",
+    "rotation": 0,
+    "scale": 1.425265971379611,
+    "translate": [
+      -72,
+      -84
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "99178",
+        "size": 124,
+        "x": 544,
+        "y": 247,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00029.png",
+    "src": "shuidianranqi.png",
+    "crop": [
+      0,
+      82,
+      300,
+      136
+    ],
+    "canvas": [
+      402,
+      366
+    ],
+    "bg_hex": "#c3402e",
+    "rotation": 0,
+    "scale": 1.0284413453300612,
+    "translate": [
+      46,
+      -102
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "NEW866",
+        "size": 74,
+        "x": 93,
+        "y": 300,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00030.png",
+    "src": "yinpin.png",
+    "crop": [
+      14,
+      0,
+      272,
+      300
+    ],
+    "canvas": [
+      408,
+      418
+    ],
+    "bg_hex": "#df87b9",
+    "rotation": 0,
+    "scale": 1.1342349708383017,
+    "translate": [
+      3,
+      32
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "特价",
+        "size": 62,
+        "x": 199,
+        "y": 3,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00031.png",
+    "src": "support_agent.png",
+    "crop": [
+      28,
+      24,
+      241,
+      216
+    ],
+    "canvas": [
+      489,
+      526
+    ],
+    "bg_hex": "#bb4541",
+    "rotation": 0,
+    "scale": 1.0203683412557016,
+    "translate": [
+      -8,
+      -69
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "特价",
+        "size": 76,
+        "x": 466,
+        "y": 153,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00032.png",
+    "src": "shuidianranqi.png",
+    "crop": [
+      0,
+      82,
+      300,
+      136
+    ],
+    "canvas": [
+      633,
+      633
+    ],
+    "bg_hex": "#76c0b6",
+    "rotation": 0,
+    "scale": 0.9495000000000001,
+    "translate": [
+      -149,
+      -134
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "特价422",
+        "size": 103,
+        "x": 111,
+        "y": 573,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "点击",
+        "size": 104,
+        "x": 269,
+        "y": 8,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "新品553",
+        "size": 129,
+        "x": 580,
+        "y": 62,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00033.png",
+    "src": "auto_awesome_motion.png",
+    "crop": [
+      48,
+      13,
+      208,
+      207
+    ],
+    "canvas": [
+      636,
+      555
+    ],
+    "bg_hex": "#978178",
+    "rotation": 0,
+    "scale": 1.973446158077857,
+    "translate": [
+      -51,
+      -47
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00034.png",
+    "src": "person_edit.png",
+    "crop": [
+      28,
+      28,
+      249,
+      217
+    ],
+    "canvas": [
+      435,
+      435
+    ],
+    "bg_hex": "#5ed7a6",
+    "rotation": 0,
+    "scale": 1.1746496351660571,
+    "translate": [
+      50,
+      -44
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "FREE",
+        "size": 110,
+        "x": 68,
+        "y": 374,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00035.png",
+    "src": "xuefei.png",
+    "crop": [
+      0,
+      5,
+      300,
+      290
+    ],
+    "canvas": [
+      544,
+      616
+    ],
+    "bg_hex": "#e46361",
+    "rotation": 0,
+    "scale": 1.4206644721208603,
+    "translate": [
+      46,
+      -29
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00036.png",
+    "src": "guolufei.png",
+    "crop": [
+      0,
+      24,
+      300,
+      252
+    ],
+    "canvas": [
+      390,
+      390
+    ],
+    "bg_hex": "#77b097",
+    "rotation": 0,
+    "scale": 0.585,
+    "translate": [
+      -72,
+      38
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "查看97",
+        "size": 73,
+        "x": 350,
+        "y": 64,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00037.png",
+    "src": "2026年7月16日 19_13_32.png",
+    "crop": [
+      0,
+      0,
+      1024,
+      1536
+    ],
+    "canvas": [
+      530,
+      530
+    ],
+    "bg_hex": "#c2bac9",
+    "rotation": 0,
+    "scale": 0.2140189387926715,
+    "translate": [
+      -99,
+      34
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00038.png",
+    "src": "riyongqingjie.png",
+    "crop": [
+      0,
+      20,
+      300,
+      260
+    ],
+    "canvas": [
+      586,
+      671
+    ],
+    "bg_hex": "#51e135",
+    "rotation": 0,
+    "scale": 1.6590344357421443,
+    "translate": [
+      -37,
+      106
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "50",
+        "size": 79,
+        "x": 530,
+        "y": 506,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00039.png",
+    "src": "cheliangbaoyang.png",
+    "crop": [
+      0,
+      37,
+      300,
+      226
+    ],
+    "canvas": [
+      451,
+      451
+    ],
+    "bg_hex": "#882835",
+    "rotation": 0,
+    "scale": 0.9837754048579209,
+    "translate": [
+      74,
+      109
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00040.png",
+    "src": "supervisor_account.png",
+    "crop": [
+      18,
+      33,
+      264,
+      205
+    ],
+    "canvas": [
+      439,
+      421
+    ],
+    "bg_hex": "#c8321e",
+    "rotation": 0,
+    "scale": 0.758077858529589,
+    "translate": [
+      96,
+      -87
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "HOT705",
+        "size": 59,
+        "x": 16,
+        "y": 362,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00041.png",
+    "src": "edit_square.png",
+    "crop": [
+      48,
+      0,
+      214,
+      212
+    ],
+    "canvas": [
+      588,
+      651
+    ],
+    "bg_hex": "#a22983",
+    "rotation": 0,
+    "scale": 1.2364485981308413,
+    "translate": [
+      -17,
+      -121
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "详情",
+        "size": 154,
+        "x": 78,
+        "y": 541,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00042.png",
+    "src": "hongbaolijin.png",
+    "crop": [
+      0,
+      30,
+      300,
+      240
+    ],
+    "canvas": [
+      555,
+      623
+    ],
+    "bg_hex": "#3739d5",
+    "rotation": 0,
+    "scale": 1.061136846779239,
+    "translate": [
+      73,
+      -85
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "爆款734",
+        "size": 93,
+        "x": 175,
+        "y": 534,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "爆款276",
+        "size": 116,
+        "x": 84,
+        "y": 116,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00043.png",
+    "src": "perm_phone.png",
+    "crop": [
+      44,
+      18,
+      218,
+      217
+    ],
+    "canvas": [
+      616,
+      575
+    ],
+    "bg_hex": "#4a9cbd",
+    "rotation": 0,
+    "scale": 1.40219354365327,
+    "translate": [
+      29,
+      6
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00044.png",
+    "src": "grid_view.png",
+    "crop": [
+      38,
+      18,
+      221,
+      220
+    ],
+    "canvas": [
+      537,
+      683
+    ],
+    "bg_hex": "#afdd9a",
+    "rotation": 0,
+    "scale": 1.8780619896072777,
+    "translate": [
+      60,
+      -8
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "商店302",
+        "size": 96,
+        "x": 107,
+        "y": 14,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00045.png",
+    "src": "xuefei.png",
+    "crop": [
+      0,
+      5,
+      300,
+      290
+    ],
+    "canvas": [
+      531,
+      504
+    ],
+    "bg_hex": "#258284",
+    "rotation": 0,
+    "scale": 0.756,
+    "translate": [
+      -20,
+      -105
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00046.png",
+    "src": "auto_awesome_motion.png",
+    "crop": [
+      48,
+      13,
+      208,
+      207
+    ],
+    "canvas": [
+      590,
+      579
+    ],
+    "bg_hex": "#3a888f",
+    "rotation": 0,
+    "scale": 1.8567811044580753,
+    "translate": [
+      -88,
+      79
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "SALE",
+        "size": 80,
+        "x": 52,
+        "y": 25,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00047.png",
+    "src": "jiayoutingche.png",
+    "crop": [
+      0,
+      26,
+      300,
+      248
+    ],
+    "canvas": [
+      473,
+      473
+    ],
+    "bg_hex": "#e2b883",
+    "rotation": 0,
+    "scale": 1.1523938910278835,
+    "translate": [
+      57,
+      90
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "HOT924",
+        "size": 87,
+        "x": 49,
+        "y": 29,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "特价",
+        "size": 62,
+        "x": 226,
+        "y": 11,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00048.png",
+    "src": "ChatGPT Image 2026年7月16日 20_59_23.png",
+    "crop": [
+      0,
+      0,
+      1536,
+      1024
+    ],
+    "canvas": [
+      508,
+      447
+    ],
+    "bg_hex": "#a6ab80",
+    "rotation": 0,
+    "scale": 0.13095703125,
+    "translate": [
+      31,
+      10
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00049.png",
+    "src": "check_box.png",
+    "crop": [
+      48,
+      25,
+      207,
+      206
+    ],
+    "canvas": [
+      565,
+      565
+    ],
+    "bg_hex": "#d885a8",
+    "rotation": 0,
+    "scale": 1.332324734123884,
+    "translate": [
+      -11,
+      -69
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "特价",
+        "size": 75,
+        "x": 155,
+        "y": 496,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "选购",
+        "size": 103,
+        "x": 560,
+        "y": 91,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00050.png",
+    "src": "touzishouyi.png",
+    "crop": [
+      32,
+      0,
+      236,
+      300
+    ],
+    "canvas": [
+      654,
+      654
+    ],
+    "bg_hex": "#c4dc91",
+    "rotation": 0,
+    "scale": 0.981,
+    "translate": [
+      -86,
+      79
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "99283",
+        "size": 98,
+        "x": 68,
+        "y": 221,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00051.png",
+    "src": "wenju.png",
+    "crop": [
+      0,
+      10,
+      300,
+      280
+    ],
+    "canvas": [
+      508,
+      508
+    ],
+    "bg_hex": "#3b1bc9",
+    "rotation": 0,
+    "scale": 0.9855807461181384,
+    "translate": [
+      -95,
+      -31
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "HOT458",
+        "size": 132,
+        "x": 28,
+        "y": 438,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "详情",
+        "size": 116,
+        "x": 415,
+        "y": 46,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00052.png",
+    "src": "waimai.png",
+    "crop": [
+      0,
+      23,
+      300,
+      254
+    ],
+    "canvas": [
+      499,
+      529
+    ],
+    "bg_hex": "#e12a35",
+    "rotation": 0,
+    "scale": 0.8982725766747403,
+    "translate": [
+      79,
+      47
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "爆款",
+        "size": 61,
+        "x": 18,
+        "y": 5,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "HOT",
+        "size": 127,
+        "x": 57,
+        "y": 1,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00053.png",
+    "src": "wenju.png",
+    "crop": [
+      0,
+      10,
+      300,
+      280
+    ],
+    "canvas": [
+      647,
+      697
+    ],
+    "bg_hex": "#9f2121",
+    "rotation": 0,
+    "scale": 1.7433661666965066,
+    "translate": [
+      9,
+      -61
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00054.png",
+    "src": "sancan.png",
+    "crop": [
+      10,
+      0,
+      280,
+      300
+    ],
+    "canvas": [
+      516,
+      516
+    ],
+    "bg_hex": "#58372f",
+    "rotation": 0,
+    "scale": 1.1783233319649786,
+    "translate": [
+      66,
+      -74
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00055.png",
+    "src": "assistant.png",
+    "crop": [
+      32,
+      12,
+      234,
+      233
+    ],
+    "canvas": [
+      623,
+      623
+    ],
+    "bg_hex": "#1d3bd2",
+    "rotation": 0,
+    "scale": 2.0358590643433137,
+    "translate": [
+      -2,
+      25
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00056.png",
+    "src": "zujinshouru.png",
+    "crop": [
+      0,
+      27,
+      300,
+      246
+    ],
+    "canvas": [
+      589,
+      608
+    ],
+    "bg_hex": "#22bf58",
+    "rotation": 0,
+    "scale": 1.412691642955705,
+    "translate": [
+      -38,
+      62
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "详情396",
+        "size": 89,
+        "x": 509,
+        "y": 46,
+        "color": "#ffffff"
+      },
+      {
+        "side": "top",
+        "text": "HOT729",
+        "size": 68,
+        "x": 225,
+        "y": 0,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00057.png",
+    "src": "sancan.png",
+    "crop": [
+      10,
+      0,
+      280,
+      300
+    ],
+    "canvas": [
+      424,
+      380
+    ],
+    "bg_hex": "#7432c0",
+    "rotation": 0,
+    "scale": 0.5744843758783881,
+    "translate": [
+      -126,
+      99
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "50",
+        "size": 54,
+        "x": 374,
+        "y": 229,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00058.png",
+    "src": "shuidianranqi.png",
+    "crop": [
+      0,
+      82,
+      300,
+      136
+    ],
+    "canvas": [
+      442,
+      411
+    ],
+    "bg_hex": "#487dc2",
+    "rotation": 0,
+    "scale": 0.6165,
+    "translate": [
+      66,
+      -152
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00059.png",
+    "src": "danche.png",
+    "crop": [
+      0,
+      48,
+      300,
+      204
+    ],
+    "canvas": [
+      577,
+      577
+    ],
+    "bg_hex": "#aac94a",
+    "rotation": 0,
+    "scale": 1.4606405851747328,
+    "translate": [
+      -57,
+      -82
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "HOT145",
+        "size": 69,
+        "x": 571,
+        "y": 186,
+        "color": "#141414"
+      },
+      {
+        "side": "bottom",
+        "text": "50954",
+        "size": 57,
+        "x": 125,
+        "y": 523,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00060.png",
+    "src": "dianyingyanchu.png",
+    "crop": [
+      0,
+      32,
+      300,
+      236
+    ],
+    "canvas": [
+      481,
+      466
+    ],
+    "bg_hex": "#d77fe0",
+    "rotation": 0,
+    "scale": 0.8078946200580392,
+    "translate": [
+      116,
+      112
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "HOT",
+        "size": 97,
+        "x": 30,
+        "y": 31,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00061.png",
+    "src": "youxihuiyuan.png",
+    "crop": [
+      0,
+      31,
+      300,
+      238
+    ],
+    "canvas": [
+      533,
+      533
+    ],
+    "bg_hex": "#592abb",
+    "rotation": 0,
+    "scale": 0.7995,
+    "translate": [
+      145,
+      22
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "HOT347",
+        "size": 101,
+        "x": 34,
+        "y": 29,
+        "color": "#ffffff"
+      },
+      {
+        "side": "top",
+        "text": "HOT976",
+        "size": 63,
+        "x": 91,
+        "y": 3,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "会员",
+        "size": 112,
+        "x": 16,
+        "y": 469,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00062.png",
+    "src": "dashboard_76dp.png",
+    "crop": [
+      41,
+      17,
+      216,
+      215
+    ],
+    "canvas": [
+      539,
+      470
+    ],
+    "bg_hex": "#ad9ecc",
+    "rotation": 0,
+    "scale": 1.8177967119796798,
+    "translate": [
+      36,
+      -12
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00063.png",
+    "src": "support_agent.png",
+    "crop": [
+      28,
+      24,
+      241,
+      216
+    ],
+    "canvas": [
+      538,
+      541
+    ],
+    "bg_hex": "#b77222",
+    "rotation": 0,
+    "scale": 1.5870959786137977,
+    "translate": [
+      48,
+      82
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00064.png",
+    "src": "delete_76dp_434343_FILL0_wght400_GRAD0_opsz48.png",
+    "crop": [
+      59,
+      27,
+      188,
+      211
+    ],
+    "canvas": [
+      412,
+      393
+    ],
+    "bg_hex": "#d87f31",
+    "rotation": 0,
+    "scale": 0.8381516587677725,
+    "translate": [
+      -36,
+      106
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00065.png",
+    "src": "yinpin.png",
+    "crop": [
+      14,
+      0,
+      272,
+      300
+    ],
+    "canvas": [
+      614,
+      544
+    ],
+    "bg_hex": "#284c50",
+    "rotation": 0,
+    "scale": 0.9440717843872316,
+    "translate": [
+      -100,
+      80
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "旗舰",
+        "size": 59,
+        "x": 595,
+        "y": 183,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00066.png",
+    "src": "lingshi.png",
+    "crop": [
+      3,
+      0,
+      294,
+      300
+    ],
+    "canvas": [
+      403,
+      403
+    ],
+    "bg_hex": "#2bd050",
+    "rotation": 0,
+    "scale": 0.9579924097663987,
+    "translate": [
+      -57,
+      55
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "SALE908",
+        "size": 88,
+        "x": 8,
+        "y": 16,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00067.png",
+    "src": "maicaishicai.png",
+    "crop": [
+      1,
+      0,
+      298,
+      300
+    ],
+    "canvas": [
+      415,
+      415
+    ],
+    "bg_hex": "#212749",
+    "rotation": 0,
+    "scale": 1.0154432589741142,
+    "translate": [
+      0,
+      -43
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "新品902",
+        "size": 86,
+        "x": 32,
+        "y": 346,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00068.png",
+    "src": "auto_awesome_motion.png",
+    "crop": [
+      48,
+      13,
+      208,
+      207
+    ],
+    "canvas": [
+      514,
+      469
+    ],
+    "bg_hex": "#967c41",
+    "rotation": 0,
+    "scale": 1.0146634615384615,
+    "translate": [
+      84,
+      -82
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "领券230",
+        "size": 64,
+        "x": 1,
+        "y": 5,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00069.png",
+    "src": "phone_in_talk.png",
+    "crop": [
+      45,
+      24,
+      204,
+      204
+    ],
+    "canvas": [
+      653,
+      560
+    ],
+    "bg_hex": "#c6a286",
+    "rotation": 0,
+    "scale": 1.6798378171269253,
+    "translate": [
+      -87,
+      107
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "旗舰",
+        "size": 66,
+        "x": 121,
+        "y": 1,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "SALE",
+        "size": 89,
+        "x": 567,
+        "y": 138,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00070.png",
+    "src": "jucanqingke.png",
+    "crop": [
+      0,
+      26,
+      300,
+      248
+    ],
+    "canvas": [
+      412,
+      367
+    ],
+    "bg_hex": "#763dc0",
+    "rotation": 0,
+    "scale": 0.7700824215694807,
+    "translate": [
+      -88,
+      -25
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00071.png",
+    "src": "zufangfangdai.png",
+    "crop": [
+      0,
+      27,
+      300,
+      246
+    ],
+    "canvas": [
+      427,
+      411
+    ],
+    "bg_hex": "#615554",
+    "rotation": 0,
+    "scale": 0.6165,
+    "translate": [
+      -70,
+      -119
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00072.png",
+    "src": "qitazafei.png",
+    "crop": [
+      0,
+      32,
+      300,
+      236
+    ],
+    "canvas": [
+      536,
+      549
+    ],
+    "bg_hex": "#cc5e44",
+    "rotation": 0,
+    "scale": 0.804,
+    "translate": [
+      70,
+      104
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00073.png",
+    "src": "home_work_76dp_434343_FILL0_wght400_GRAD0_opsz48.png",
+    "crop": [
+      28,
+      27,
+      246,
+      202
+    ],
+    "canvas": [
+      387,
+      387
+    ],
+    "bg_hex": "#2adf86",
+    "rotation": 0,
+    "scale": 1.33090572855904,
+    "translate": [
+      27,
+      -21
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00074.png",
+    "src": "waimai.png",
+    "crop": [
+      0,
+      23,
+      300,
+      254
+    ],
+    "canvas": [
+      551,
+      615
+    ],
+    "bg_hex": "#7f42a1",
+    "rotation": 0,
+    "scale": 1.4495789184787615,
+    "translate": [
+      -16,
+      -24
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "热卖635",
+        "size": 119,
+        "x": 96,
+        "y": 514,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00075.png",
+    "src": "fact_check.png",
+    "crop": [
+      36,
+      17,
+      229,
+      203
+    ],
+    "canvas": [
+      546,
+      500
+    ],
+    "bg_hex": "#d2ae6d",
+    "rotation": 0,
+    "scale": 1.8233716876004438,
+    "translate": [
+      -5,
+      -16
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00076.png",
+    "src": "perm_phone.png",
+    "crop": [
+      44,
+      18,
+      218,
+      217
+    ],
+    "canvas": [
+      605,
+      605
+    ],
+    "bg_hex": "#c9524e",
+    "rotation": 0,
+    "scale": 1.303684121422877,
+    "translate": [
+      -108,
+      24
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "详情",
+        "size": 102,
+        "x": 43,
+        "y": 535,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "点击504",
+        "size": 72,
+        "x": 57,
+        "y": 16,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00077.png",
+    "src": "dache.png",
+    "crop": [
+      0,
+      48,
+      300,
+      204
+    ],
+    "canvas": [
+      383,
+      383
+    ],
+    "bg_hex": "#7237bd",
+    "rotation": 0,
+    "scale": 0.8159421222974822,
+    "translate": [
+      57,
+      -38
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "福利",
+        "size": 52,
+        "x": 110,
+        "y": 4,
+        "color": "#141414"
+      },
+      {
+        "side": "left",
+        "text": "会员677",
+        "size": 61,
+        "x": 36,
+        "y": 169,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00078.png",
+    "src": "2026年7月16日 19_13_32.png",
+    "crop": [
+      0,
+      0,
+      1024,
+      1536
+    ],
+    "canvas": [
+      345,
+      345
+    ],
+    "bg_hex": "#774865",
+    "rotation": 0,
+    "scale": 0.11416040370342184,
+    "translate": [
+      45,
+      56
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "特价916",
+        "size": 49,
+        "x": 117,
+        "y": 6,
+        "color": "#141414"
+      },
+      {
+        "side": "left",
+        "text": "特价870",
+        "size": 58,
+        "x": 12,
+        "y": 120,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00079.png",
+    "src": "feiji.png",
+    "crop": [
+      0,
+      68,
+      300,
+      164
+    ],
+    "canvas": [
+      507,
+      502
+    ],
+    "bg_hex": "#8e6790",
+    "rotation": 0,
+    "scale": 1.1021023715270446,
+    "translate": [
+      -18,
+      95
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00080.png",
+    "src": "feiji.png",
+    "crop": [
+      0,
+      68,
+      300,
+      164
+    ],
+    "canvas": [
+      652,
+      652
+    ],
+    "bg_hex": "#83522d",
+    "rotation": 0,
+    "scale": 1.4349995579133838,
+    "translate": [
+      34,
+      -74
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "NEW921",
+        "size": 146,
+        "x": 48,
+        "y": 545,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00081.png",
+    "src": "touzishouyi.png",
+    "crop": [
+      32,
+      0,
+      236,
+      300
+    ],
+    "canvas": [
+      507,
+      466
+    ],
+    "bg_hex": "#65bcad",
+    "rotation": 0,
+    "scale": 1.154044318486085,
+    "translate": [
+      61,
+      -33
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "选购685",
+        "size": 91,
+        "x": 17,
+        "y": 19,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00082.png",
+    "src": "cheliangbaoyang.png",
+    "crop": [
+      0,
+      37,
+      300,
+      226
+    ],
+    "canvas": [
+      392,
+      414
+    ],
+    "bg_hex": "#3c8057",
+    "rotation": 0,
+    "scale": 0.588,
+    "translate": [
+      -27,
+      18
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00083.png",
+    "src": "waimai.png",
+    "crop": [
+      0,
+      23,
+      300,
+      254
+    ],
+    "canvas": [
+      578,
+      535
+    ],
+    "bg_hex": "#1bc41a",
+    "rotation": 0,
+    "scale": 1.2860225479276017,
+    "translate": [
+      90,
+      -45
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00084.png",
+    "src": "dianyingyanchu.png",
+    "crop": [
+      0,
+      32,
+      300,
+      236
+    ],
+    "canvas": [
+      397,
+      397
+    ],
+    "bg_hex": "#2f25e4",
+    "rotation": 0,
+    "scale": 0.7549430788811639,
+    "translate": [
+      -84,
+      -83
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "99",
+        "size": 71,
+        "x": 57,
+        "y": 342,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00085.png",
+    "src": "cheliangbaoyang.png",
+    "crop": [
+      0,
+      37,
+      300,
+      226
+    ],
+    "canvas": [
+      457,
+      435
+    ],
+    "bg_hex": "#4d43c2",
+    "rotation": 0,
+    "scale": 1.1363069731693412,
+    "translate": [
+      -6,
+      40
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00086.png",
+    "src": "zufangfangdai.png",
+    "crop": [
+      0,
+      27,
+      300,
+      246
+    ],
+    "canvas": [
+      685,
+      685
+    ],
+    "bg_hex": "#cd1dd5",
+    "rotation": 0,
+    "scale": 1.8850447126124157,
+    "translate": [
+      46,
+      -102
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "爆款453",
+        "size": 98,
+        "x": 61,
+        "y": 212,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "会员116",
+        "size": 92,
+        "x": 323,
+        "y": 616,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00087.png",
+    "src": "dashboard_76dp.png",
+    "crop": [
+      41,
+      17,
+      216,
+      215
+    ],
+    "canvas": [
+      563,
+      446
+    ],
+    "bg_hex": "#404ea4",
+    "rotation": 0,
+    "scale": 0.9627064282645067,
+    "translate": [
+      -56,
+      85
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "特价919",
+        "size": 112,
+        "x": 94,
+        "y": 6,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00088.png",
+    "src": "gongzishouru.png",
+    "crop": [
+      24,
+      0,
+      252,
+      300
+    ],
+    "canvas": [
+      499,
+      551
+    ],
+    "bg_hex": "#bca489",
+    "rotation": 0,
+    "scale": 1.131008318073715,
+    "translate": [
+      34,
+      75
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "50",
+        "size": 127,
+        "x": 39,
+        "y": 109,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00089.png",
+    "src": "grid_view.png",
+    "crop": [
+      38,
+      18,
+      221,
+      220
+    ],
+    "canvas": [
+      464,
+      443
+    ],
+    "bg_hex": "#616f69",
+    "rotation": 0,
+    "scale": 1.0259951844908253,
+    "translate": [
+      9,
+      36
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "领券90",
+        "size": 57,
+        "x": 163,
+        "y": 401,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "福利",
+        "size": 97,
+        "x": 51,
+        "y": 208,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "NEW",
+        "size": 67,
+        "x": 438,
+        "y": 246,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "选购",
+        "size": 56,
+        "x": 330,
+        "y": 5,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00090.png",
+    "src": "phone_in_talk.png",
+    "crop": [
+      45,
+      24,
+      204,
+      204
+    ],
+    "canvas": [
+      540,
+      540
+    ],
+    "bg_hex": "#d39369",
+    "rotation": 0,
+    "scale": 1.9566173691816993,
+    "translate": [
+      40,
+      -21
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00091.png",
+    "src": "fuyejianzhi.png",
+    "crop": [
+      0,
+      5,
+      300,
+      290
+    ],
+    "canvas": [
+      406,
+      430
+    ],
+    "bg_hex": "#b69919",
+    "rotation": 0,
+    "scale": 0.9540023753741815,
+    "translate": [
+      6,
+      14
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "NEW244",
+        "size": 59,
+        "x": 34,
+        "y": 375,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00092.png",
+    "src": "chaoshibianli.png",
+    "crop": [
+      0,
+      41,
+      300,
+      218
+    ],
+    "canvas": [
+      336,
+      375
+    ],
+    "bg_hex": "#90924b",
+    "rotation": 0,
+    "scale": 0.8540546536356838,
+    "translate": [
+      26,
+      -7
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "爆款639",
+        "size": 77,
+        "x": 32,
+        "y": 19,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00093.png",
+    "src": "content_cut.png",
+    "crop": [
+      50,
+      20,
+      203,
+      212
+    ],
+    "canvas": [
+      499,
+      473
+    ],
+    "bg_hex": "#363de4",
+    "rotation": 0,
+    "scale": 1.004009433962264,
+    "translate": [
+      -55,
+      48
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "NEW101",
+        "size": 108,
+        "x": 18,
+        "y": 3,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "领券957",
+        "size": 59,
+        "x": 226,
+        "y": 435,
+        "color": "#141414"
+      },
+      {
+        "side": "right",
+        "text": "新品699",
+        "size": 105,
+        "x": 425,
+        "y": 71,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00094.png",
+    "src": "peixunwangke.png",
+    "crop": [
+      0,
+      6,
+      300,
+      288
+    ],
+    "canvas": [
+      581,
+      581
+    ],
+    "bg_hex": "#4a526a",
+    "rotation": 0,
+    "scale": 0.8714999999999999,
+    "translate": [
+      -18,
+      -59
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00095.png",
+    "src": "maicaishicai.png",
+    "crop": [
+      1,
+      0,
+      298,
+      300
+    ],
+    "canvas": [
+      554,
+      522
+    ],
+    "bg_hex": "#b64e4f",
+    "rotation": 0,
+    "scale": 1.0390558538398778,
+    "translate": [
+      34,
+      -10
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00096.png",
+    "src": "corporate_fare.png",
+    "crop": [
+      35,
+      19,
+      228,
+      206
+    ],
+    "canvas": [
+      491,
+      555
+    ],
+    "bg_hex": "#d3b340",
+    "rotation": 0,
+    "scale": 1.7923322065233536,
+    "translate": [
+      -7,
+      2
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00097.png",
+    "src": "maicaishicai.png",
+    "crop": [
+      1,
+      0,
+      298,
+      300
+    ],
+    "canvas": [
+      512,
+      446
+    ],
+    "bg_hex": "#822e54",
+    "rotation": 0,
+    "scale": 0.7702034493930394,
+    "translate": [
+      -9,
+      56
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "领券765",
+        "size": 124,
+        "x": 61,
+        "y": 13,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "满减912",
+        "size": 50,
+        "x": 299,
+        "y": 410,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00098.png",
+    "src": "ditiegongjiao.png",
+    "crop": [
+      0,
+      40,
+      300,
+      220
+    ],
+    "canvas": [
+      653,
+      557
+    ],
+    "bg_hex": "#cb2582",
+    "rotation": 0,
+    "scale": 0.8355,
+    "translate": [
+      -77,
+      -167
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00099.png",
+    "src": "zujinshouru.png",
+    "crop": [
+      0,
+      27,
+      300,
+      246
+    ],
+    "canvas": [
+      422,
+      385
+    ],
+    "bg_hex": "#914b99",
+    "rotation": 0,
+    "scale": 0.5775,
+    "translate": [
+      -35,
+      84
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "99153",
+        "size": 51,
+        "x": 14,
+        "y": 149,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00100.png",
+    "src": "zufangfangdai.png",
+    "crop": [
+      0,
+      27,
+      300,
+      246
+    ],
+    "canvas": [
+      681,
+      628
+    ],
+    "bg_hex": "#e18461",
+    "rotation": 0,
+    "scale": 1.5938560154274863,
+    "translate": [
+      75,
+      -55
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "99133",
+        "size": 127,
+        "x": 87,
+        "y": 246,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00101.png",
+    "src": "gongzishouru.png",
+    "crop": [
+      24,
+      0,
+      252,
+      300
+    ],
+    "canvas": [
+      428,
+      436
+    ],
+    "bg_hex": "#201c1a",
+    "rotation": 0,
+    "scale": 0.789350835265948,
+    "translate": [
+      -6,
+      -49
+    ],
+    "texts": [
+      {
+        "side": "bottom",
+        "text": "查看287",
+        "size": 57,
+        "x": 207,
+        "y": 399,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00102.png",
+    "src": "fact_check.png",
+    "crop": [
+      36,
+      17,
+      229,
+      203
+    ],
+    "canvas": [
+      555,
+      504
+    ],
+    "bg_hex": "#5e5a20",
+    "rotation": 0,
+    "scale": 1.3857574147293172,
+    "translate": [
+      -34,
+      -30
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "会员",
+        "size": 81,
+        "x": 480,
+        "y": 126,
+        "color": "#ffffff"
+      },
+      {
+        "side": "top",
+        "text": "NEW",
+        "size": 77,
+        "x": 31,
+        "y": 0,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00103.png",
+    "src": "chaoshibianli.png",
+    "crop": [
+      0,
+      41,
+      300,
+      218
+    ],
+    "canvas": [
+      352,
+      390
+    ],
+    "bg_hex": "#643681",
+    "rotation": 0,
+    "scale": 0.528,
+    "translate": [
+      63,
+      -21
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "福利221",
+        "size": 50,
+        "x": 54,
+        "y": 5,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00104.png",
+    "src": "chaoshibianli.png",
+    "crop": [
+      0,
+      41,
+      300,
+      218
+    ],
+    "canvas": [
+      449,
+      409
+    ],
+    "bg_hex": "#e0a5ce",
+    "rotation": 0,
+    "scale": 0.8411667094651764,
+    "translate": [
+      42,
+      -30
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "99",
+        "size": 66,
+        "x": 120,
+        "y": 1,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "会员",
+        "size": 62,
+        "x": 33,
+        "y": 217,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00105.png",
+    "src": "colors.png",
+    "crop": [
+      34,
+      20,
+      229,
+      213
+    ],
+    "canvas": [
+      480,
+      471
+    ],
+    "bg_hex": "#c4cc22",
+    "rotation": 0,
+    "scale": 1.7334708775904182,
+    "translate": [
+      11,
+      49
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "查看371",
+        "size": 53,
+        "x": 83,
+        "y": 2,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00106.png",
+    "src": "jiangjinjixiao.png",
+    "crop": [
+      6,
+      0,
+      288,
+      300
+    ],
+    "canvas": [
+      546,
+      518
+    ],
+    "bg_hex": "#7b591d",
+    "rotation": 0,
+    "scale": 1.3538305834675188,
+    "translate": [
+      -27,
+      38
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "新品479",
+        "size": 52,
+        "x": 507,
+        "y": 252,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00107.png",
+    "src": "content_cut.png",
+    "crop": [
+      50,
+      20,
+      203,
+      212
+    ],
+    "canvas": [
+      374,
+      374
+    ],
+    "bg_hex": "#9273da",
+    "rotation": 0,
+    "scale": 0.7938679245283019,
+    "translate": [
+      -86,
+      44
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00108.png",
+    "src": "dianyingyanchu.png",
+    "crop": [
+      0,
+      32,
+      300,
+      236
+    ],
+    "canvas": [
+      482,
+      487
+    ],
+    "bg_hex": "#58e25c",
+    "rotation": 0,
+    "scale": 1.0505167226468293,
+    "translate": [
+      31,
+      65
+    ],
+    "texts": [
+      {
+        "side": "top",
+        "text": "特价13",
+        "size": 100,
+        "x": 187,
+        "y": 27,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00109.png",
+    "src": "wuyeweixiu.png",
+    "crop": [
+      36,
+      0,
+      228,
+      300
+    ],
+    "canvas": [
+      555,
+      555
+    ],
+    "bg_hex": "#22269c",
+    "rotation": 0,
+    "scale": 1.0279968056526465,
+    "translate": [
+      51,
+      -44
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "SALE",
+        "size": 92,
+        "x": 23,
+        "y": 35,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "旗舰781",
+        "size": 69,
+        "x": 231,
+        "y": 3,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "会员",
+        "size": 107,
+        "x": 291,
+        "y": 481,
+        "color": "#ffffff"
+      },
+      {
+        "side": "right",
+        "text": "50733",
+        "size": 95,
+        "x": 533,
+        "y": 191,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00110.png",
+    "src": "baoxianfeiyong.png",
+    "crop": [
+      0,
+      8,
+      300,
+      284
+    ],
+    "canvas": [
+      625,
+      604
+    ],
+    "bg_hex": "#287bce",
+    "rotation": 0,
+    "scale": 1.6312491985840658,
+    "translate": [
+      66,
+      46
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00111.png",
+    "src": "xuefei.png",
+    "crop": [
+      0,
+      5,
+      300,
+      290
+    ],
+    "canvas": [
+      719,
+      638
+    ],
+    "bg_hex": "#24664f",
+    "rotation": 0,
+    "scale": 1.0805705755180508,
+    "translate": [
+      -20,
+      -144
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "查看984",
+        "size": 78,
+        "x": 657,
+        "y": 157,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "HOT",
+        "size": 100,
+        "x": 479,
+        "y": 587,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00112.png",
+    "src": "content_cut.png",
+    "crop": [
+      50,
+      20,
+      203,
+      212
+    ],
+    "canvas": [
+      569,
+      594
+    ],
+    "bg_hex": "#ccdf83",
+    "rotation": 0,
+    "scale": 2.055057040698797,
+    "translate": [
+      43,
+      -48
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00113.png",
+    "src": "content_cut.png",
+    "crop": [
+      50,
+      20,
+      203,
+      212
+    ],
+    "canvas": [
+      574,
+      687
+    ],
+    "bg_hex": "#4b568e",
+    "rotation": 0,
+    "scale": 2.1640416712188353,
+    "translate": [
+      -18,
+      38
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00114.png",
+    "src": "ChatGPT Image 2026年7月16日 20_59_23.png",
+    "crop": [
+      0,
+      0,
+      1536,
+      1024
+    ],
+    "canvas": [
+      393,
+      400
+    ],
+    "bg_hex": "#2c7f73",
+    "rotation": 0,
+    "scale": 0.1256377306625114,
+    "translate": [
+      -80,
+      45
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "特价",
+        "size": 53,
+        "x": 383,
+        "y": 292,
+        "color": "#141414"
+      },
+      {
+        "side": "top",
+        "text": "旗舰",
+        "size": 45,
+        "x": 28,
+        "y": 4,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00115.png",
+    "src": "gongzishouru.png",
+    "crop": [
+      24,
+      0,
+      252,
+      300
+    ],
+    "canvas": [
+      502,
+      502
+    ],
+    "bg_hex": "#ddcf31",
+    "rotation": 0,
+    "scale": 1.3200155203850108,
+    "translate": [
+      75,
+      -47
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "领券105",
+        "size": 53,
+        "x": 3,
+        "y": 109,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "选购",
+        "size": 80,
+        "x": 199,
+        "y": 460,
+        "color": "#141414"
+      }
+    ]
+  },
+  {
+    "image": "sample_00116.png",
+    "src": "huoche.png",
+    "crop": [
+      35,
+      0,
+      230,
+      300
+    ],
+    "canvas": [
+      479,
+      479
+    ],
+    "bg_hex": "#b15b96",
+    "rotation": 0,
+    "scale": 0.7185,
+    "translate": [
+      64,
+      -124
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "旗舰657",
+        "size": 106,
+        "x": 17,
+        "y": 3,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "99",
+        "size": 76,
+        "x": 292,
+        "y": 405,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00117.png",
+    "src": "kafei.png",
+    "crop": [
+      60,
+      0,
+      180,
+      300
+    ],
+    "canvas": [
+      357,
+      381
+    ],
+    "bg_hex": "#494fd3",
+    "rotation": 0,
+    "scale": 0.7305264056620608,
+    "translate": [
+      97,
+      -35
+    ],
+    "texts": [
+      {
+        "side": "left",
+        "text": "NEW791",
+        "size": 83,
+        "x": 20,
+        "y": 20,
+        "color": "#ffffff"
+      }
+    ]
+  },
+  {
+    "image": "sample_00118.png",
+    "src": "yiliaoyaopin.png",
+    "crop": [
+      0,
+      26,
+      300,
+      248
+    ],
+    "canvas": [
+      357,
+      355
+    ],
+    "bg_hex": "#db7495",
+    "rotation": 0,
+    "scale": 0.8330267584412769,
+    "translate": [
+      -21,
+      -55
+    ],
+    "texts": null
+  },
+  {
+    "image": "sample_00119.png",
+    "src": "delete_76dp_434343_FILL0_wght400_GRAD0_opsz48.png",
+    "crop": [
+      59,
+      27,
+      188,
+      211
+    ],
+    "canvas": [
+      693,
+      554
+    ],
+    "bg_hex": "#db87a9",
+    "rotation": 0,
+    "scale": 1.1815165876777252,
+    "translate": [
+      -101,
+      -23
+    ],
+    "texts": [
+      {
+        "side": "right",
+        "text": "旗舰926",
+        "size": 79,
+        "x": 676,
+        "y": 205,
+        "color": "#ffffff"
+      },
+      {
+        "side": "bottom",
+        "text": "FREE433",
+        "size": 109,
+        "x": 62,
+        "y": 456,
+        "color": "#ffffff"
+      },
+      {
+        "side": "left",
+        "text": "爆款51",
+        "size": 80,
+        "x": 68,
+        "y": 60,
+        "color": "#ffffff"
+      }
+    ]
+  }
+]

@@ -87,6 +87,7 @@ type Feat struct {
 	Mask48     []float64 // 48x48 binary mask, centroid-centered, RMS-scaled
 	N          int
 	Mono       bool
+	ColorProj  []float64 // 32x32 color projection histogram (row+col mean RGB)
 	Sx, Sy     []float64 // sprite points scaled to Mask48 grid (centroid orgin)
 	RMS        float64   // root-mean-square radius of sprite pixels
 	MinX, MinY int
@@ -368,5 +369,112 @@ func buildFeat(px []Px) *Feat {
 		f.Sx[i] = dx * s
 		f.Sy[i] = dy * s
 	}
+	f.ColorProj = buildColorProj(px)
 	return f
+}
+
+// buildColorProj builds the 32x32 color projection histogram of a sprite:
+// the sprite's bounding box is padded to a square (letterboxed), resized to
+// 32x32, then the mean RGB of each row and each column is recorded. Output is
+// 32*3 + 32*3 = 192 floats: [row0.R row0.G row0.B ... row31] then
+// [col0.R col0.G col0.B ... col31]. This is the query's static spatial color
+// layout — a target occupying only part of a composite image leaves a
+// distinctive row/column color signature.
+func buildColorProj(px []Px) []float64 {
+	if len(px) == 0 {
+		return nil
+	}
+	minX, minY := px[0].X, px[0].Y
+	maxX, maxY := px[0].X, px[0].Y
+	for _, p := range px {
+		if p.X < minX {
+			minX = p.X
+		}
+		if p.X > maxX {
+			maxX = p.X
+		}
+		if p.Y < minY {
+			minY = p.Y
+		}
+		if p.Y > maxY {
+			maxY = p.Y
+		}
+	}
+	w := maxX - minX + 1
+	h := maxY - minY + 1
+	side := w
+	if h > side {
+		side = h
+	}
+	if side <= 0 {
+		return nil
+	}
+	// map each pixel into the padded square's 32x32 grid
+	cell := make([][3]float64, 32*32)
+	cnt := make([]float64, 32*32)
+	offX := float64(side-w) / 2
+	offY := float64(side-h) / 2
+	for _, p := range px {
+		fx := (float64(p.X-minX) + offX) / float64(side) * 32
+		fy := (float64(p.Y-minY) + offY) / float64(side) * 32
+		gx := int(fx)
+		gy := int(fy)
+		if gx < 0 {
+			gx = 0
+		}
+		if gx > 31 {
+			gx = 31
+		}
+		if gy < 0 {
+			gy = 0
+		}
+		if gy > 31 {
+			gy = 31
+		}
+		idx := gy*32 + gx
+		cell[idx][0] += float64(p.R) / 255
+		cell[idx][1] += float64(p.G) / 255
+		cell[idx][2] += float64(p.B) / 255
+		cnt[idx]++
+	}
+	out := make([]float64, 0, 32*3*2)
+	// row projections: mean RGB of occupied cells in each row
+	for gy := 0; gy < 32; gy++ {
+		var r, g, b, n float64
+		for gx := 0; gx < 32; gx++ {
+			idx := gy*32 + gx
+			if cnt[idx] == 0 {
+				continue
+			}
+			r += cell[idx][0] / cnt[idx]
+			g += cell[idx][1] / cnt[idx]
+			b += cell[idx][2] / cnt[idx]
+			n++
+		}
+		if n == 0 {
+			out = append(out, 0, 0, 0)
+			continue
+		}
+		out = append(out, r/n, g/n, b/n)
+	}
+	// column projections
+	for gx := 0; gx < 32; gx++ {
+		var r, g, b, n float64
+		for gy := 0; gy < 32; gy++ {
+			idx := gy*32 + gx
+			if cnt[idx] == 0 {
+				continue
+			}
+			r += cell[idx][0] / cnt[idx]
+			g += cell[idx][1] / cnt[idx]
+			b += cell[idx][2] / cnt[idx]
+			n++
+		}
+		if n == 0 {
+			out = append(out, 0, 0, 0)
+			continue
+		}
+		out = append(out, r/n, g/n, b/n)
+	}
+	return out
 }

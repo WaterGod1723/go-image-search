@@ -145,9 +145,10 @@ func polarShiftBoth(q, r *Feat) (float64, []float64) {
 //   - mono: whether the query sprite is monochrome (0/1), letting the model
 //     condition on gray vs colorful queries.
 //
-// plus the 16 per-ring shape-detail cosines and the sczl color-agnostic global
-// similarity (a second, independent expert whose error set differs — the
-// network learns when to trust it, i.e. soft neural routing).
+// plus the query's multi-region fragmentation (Region), the 16 per-ring
+// shape-detail cosines, and the sczl color-agnostic global similarity (a
+// second, independent expert whose error set differs — the network learns when
+// to trust it, i.e. soft neural routing).
 func computePairs(q *Feat, refs []*Feat, qm *queryMasks, sczlRows [][]float64) [][]float64 {
 	out := make([][]float64, len(refs))
 	hists := make([]float64, len(refs))
@@ -277,16 +278,17 @@ func queryStats(pairs [][]float64) (best, gap []float64) {
 	return best, gap
 }
 
-func nnVec(pair, best, gap []float64) []float64 {
+func nnVec(pair, best, gap, color []float64) []float64 {
 	x := make([]float64, 0, nnInput)
 	x = append(x, pair...)
 	x = append(x, best...)
 	x = append(x, gap...)
+	x = append(x, color...)
 	return x
 }
 
-// rankNN ranks refs for query q by the MLP's predicted relevance, in two
-// stages so the cost grows sub-linearly with the library size:
+// rankNN ranks refs for query q by the attention-net's predicted relevance, in
+// two stages so the cost grows sub-linearly with the library size:
 //
 //	stage 1 (all refs, cheap): scan-free rotation-invariant pre-filter score;
 //	stage 2 (top-N only): the expensive features (mask rotation, sczl expert,
@@ -298,13 +300,13 @@ func nnVec(pair, best, gap []float64) []float64 {
 // score. Measured on test_set a shortlist of 40 never drops the true ref, so
 // recall@1/@3 is preserved while big libraries avoid the per-ref mask/sczl
 // sweep for all but N entries.
-func rankNN(q *Feat, refs []*Feat, m *MLP, sczlIx *sczl.Index, qd sczl.Descriptor) []int {
+func rankNN(q *Feat, refs []*Feat, m *AttnNet, sczlIx *sczl.Index, qd sczl.Descriptor) []int {
 	return rankNNPri(q, refs, func(x []float64) float64 { return m.predict(x) }, sczlIx, qd)
 }
 
 // rankNNPri is rankNN parameterized by the relevance predictor, so different
-// architectures (the fixed MLP, the flexible netMLP, etc.) share the same
-// two-stage ranking + SC refinement pipeline.
+// architectures (the fixed attention net, the flexible netMLP, etc.) share the
+// same two-stage ranking + SC refinement pipeline.
 func rankNNPri(q *Feat, refs []*Feat, predict func([]float64) float64, sczlIx *sczl.Index, qd sczl.Descriptor) []int {
 	prefN := prefilterN()
 
@@ -342,7 +344,7 @@ func rankNNPri(q *Feat, refs []*Feat, predict func([]float64) float64, sczlIx *s
 	pairs, best, gap := buildPairDataScored(q, keptRefs, qm, sczlRows)
 	score := make([]float64, nKeep)
 	for j := range keptRefs {
-		score[j] = predict(nnVec(pairs[j], best, gap))
+		score[j] = predict(nnVec(pairs[j], best, gap, q.ColorProj))
 	}
 	outKeep := make([]int, nKeep)
 	for j := range outKeep {
@@ -416,10 +418,11 @@ type nnQuery struct {
 	pairs   [][]float64
 	best    []float64
 	gap     []float64
+	color   []float64 // query's 32x32 color projection histogram
 }
 
 // runTrain builds a labeled dataset from a gentest-generated directory, trains
-// the fusion MLP, and persists the weights.
+// the fusion attention net, and persists the weights.
 func runTrain(root string, args []string) {
 	trainDir := "train_set"
 	weightsPath := "weights.gob"
@@ -508,9 +511,9 @@ func runTrain(root string, args []string) {
 	var samples []nnSample
 	for i := range queries {
 		qu := &queries[i]
-		samples = append(samples, nnSample{x: nnVec(qu.pairs[qu.trueIdx], qu.best, qu.gap), y: 1, w: 1})
+		samples = append(samples, nnSample{x: nnVec(qu.pairs[qu.trueIdx], qu.best, qu.gap, qu.color), y: 1, w: 1})
 		for _, j := range hardNegs(qu, i) {
-			samples = append(samples, nnSample{x: nnVec(qu.pairs[j], qu.best, qu.gap), y: 0, w: 1})
+			samples = append(samples, nnSample{x: nnVec(qu.pairs[j], qu.best, qu.gap, qu.color), y: 0, w: 1})
 		}
 	}
 	fmt.Printf("samples: %d\n", len(samples))
@@ -536,7 +539,7 @@ func runTrain(root string, args []string) {
 	}
 	fmt.Printf("pos=%d neg=%d wPos=%.2f wNeg=%.2f\n", nPos, nNeg, wPos, wNeg)
 
-	m := newMLP(42)
+	m := newAttnNet(42)
 	adam := newAdam(m)
 	rng := rand.New(rand.NewSource(7))
 	order := make([]int, len(samples))
@@ -553,7 +556,7 @@ func runTrain(root string, args []string) {
 			n := end - off
 			for _, si := range order[off:end] {
 				s := samples[si]
-				p, _, _ := m.forward(s.x)
+				p, _ := m.forward(s.x)
 				loss += -s.w * (s.y*mathLog(p) + (1-s.y)*mathLog(1-p))
 				m.backprop(g, s.x, s.y, s.w)
 			}
@@ -578,7 +581,7 @@ func runTrain(root string, args []string) {
 func buildNNQuery(q *Feat, refs []*Feat, sczlIx *sczl.Index, qd sczl.Descriptor, trueIdx int) nnQuery {
 	qm := newQueryMasks(q.Mask48)
 	pairs, best, gap := buildPairData(q, refs, qm, sczlIx, qd)
-	return nnQuery{trueIdx: trueIdx, pairs: pairs, best: best, gap: gap}
+	return nnQuery{trueIdx: trueIdx, pairs: pairs, best: best, gap: gap, color: q.ColorProj}
 }
 
 // buildSCZLRefs extracts the sczl descriptor of every reference sprite, as the
@@ -632,13 +635,13 @@ func parFor(n int, fn func(i int)) {
 	wg.Wait()
 }
 
-func trainAt1(m *MLP, queries []nnQuery) int {
+func trainAt1(m *AttnNet, queries []nnQuery) int {
 	ok := 0
 	for i := range queries {
 		qu := &queries[i]
 		bestScore, bestIdx := -1.0, -1
 		for j := range qu.pairs {
-			if v := m.predict(nnVec(qu.pairs[j], qu.best, qu.gap)); v > bestScore {
+			if v := m.predict(nnVec(qu.pairs[j], qu.best, qu.gap, qu.color)); v > bestScore {
 				bestScore, bestIdx = v, j
 			}
 		}
@@ -724,14 +727,14 @@ func runSegDump(root string, args []string) {
 // hist, mask64, mask32, zern, polarshape, SC (shape-context), NN (trained),
 // baseline compositeAdaptive.
 func runRankReport(root string, args []string) {
-	m := &MLP{}
+	m := &AttnNet{}
 	if len(args) > 0 {
 		var err error
-		if m, err = loadMLP(args[0]); err != nil {
+		if m, err = loadAttnNet(args[0]); err != nil {
 			fatal(err)
 		}
 	} else {
-		m = newMLP(1)
+		m = newAttnNet(1)
 	}
 	refs, refNames := buildRefIndex(root)
 	entries := loadManifest(filepath.Join(root, "test_set"))
@@ -805,7 +808,7 @@ func runRankReport(root string, args []string) {
 			m64[j] = maskScore(q, r)
 			m32[j] = maskScoreGrid(q, r, 32)
 			sc[j] = shapeContextSim(q, r)
-			nn[j] = m.predict(nnVec(pairs[j], best, g))
+			nn[j] = m.predict(nnVec(pairs[j], best, g, q.ColorProj))
 		}
 		rank := func(v []float64) int {
 			r := 1
@@ -954,7 +957,7 @@ func runNNEval(root string, args []string) {
 	if len(args) > 0 {
 		weightsPath = args[0]
 	}
-	m, err := loadMLP(weightsPath)
+	m, err := loadAttnNet(weightsPath)
 	if err != nil {
 		fatal(err)
 	}
@@ -1047,7 +1050,7 @@ func runNNEval(root string, args []string) {
 
 	fmt.Printf("baseline adaptive : recall@1=%d/%d (%.1f%%)  recall@3=%d/%d (%.1f%%)  recall@5=%d/%d (%.1f%%)\n",
 		base1, total, 100*float64(base1)/float64(total), base3, total, 100*float64(base3)/float64(total), base5, total, 100*float64(base5)/float64(total))
-	fmt.Printf("neural (MLP)      : recall@1=%d/%d (%.1f%%)  recall@3=%d/%d (%.1f%%)  recall@5=%d/%d (%.1f%%)\n",
+	fmt.Printf("neural (attn)     : recall@1=%d/%d (%.1f%%)  recall@3=%d/%d (%.1f%%)  recall@5=%d/%d (%.1f%%)\n",
 		nn1, total, 100*float64(nn1)/float64(total), nn3, total, 100*float64(nn3)/float64(total), nn5, total, 100*float64(nn5)/float64(total))
 
 	if len(nnMisses) > 0 {

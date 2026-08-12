@@ -26,7 +26,7 @@ func renderSample(rng *rand.Rand, lib *fontLib, sprite *image.NRGBA, crop [4]int
 	flatFill(canvas, bg)
 
 	rot := 0.0
-	if rng.Float64() < 0.9 {
+	if !*noRot && rng.Float64() < 0.9 {
 		rot = rng.Float64()*360 - 180
 	}
 	rad := rot * math.Pi / 180

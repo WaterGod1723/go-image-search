@@ -87,10 +87,10 @@ type server struct {
 	lastBuilt time.Time
 	cache     *indexCacheFile
 
-	// neural ranker: nn != nil enables the trained MLP (with the sczl
-	// color-agnostic expert) in /api/search; otherwise falls back to the
-	// hand-tuned compositeAdaptive.
-	nn     *MLP
+	// neural ranker: nn != nil enables the trained attention fusion network
+	// (with the sczl color-agnostic expert) in /api/search; otherwise falls back
+	// to the hand-tuned compositeAdaptive.
+	nn     *AttnNet
 	sczlIx *sczl.Index
 
 	qCache map[[32]byte]*searchResponse
@@ -123,7 +123,7 @@ func newServer(root string) *server {
 	return s
 }
 
-// loadNN loads the trained fusion MLP weights. The path comes from the
+// loadNN loads the trained fusion attention-net weights. The path comes from the
 // NN_WEIGHTS env var (default <root>/weights.gob); if missing or invalid the
 // server degrades gracefully to the heuristic ranker.
 func (s *server) loadNN() {
@@ -131,12 +131,12 @@ func (s *server) loadNN() {
 	if path == "" {
 		path = filepath.Join(s.root, "weights.gob")
 	}
-	m, err := loadMLP(path)
+	m, err := loadAttnNet(path)
 	if err != nil {
 		log.Printf("neural ranker disabled (no weights at %s): %v", path, err)
 		return
 	}
-	if m.W1 == nil || len(m.W1) != nnH1*nnInput {
+	if !m.valid() {
 		log.Printf("neural ranker disabled: weights shape mismatch (%s)", path)
 		return
 	}
@@ -452,7 +452,7 @@ func (s *server) handleSearch(w http.ResponseWriter, r *http.Request) {
 
 	var ranked []int
 	if nn != nil {
-		// neural ranker: trained MLP fusing our features + the sczl expert,
+		// neural ranker: trained attention net fusing our features + the sczl expert,
 		// with shape-context shortlist refinement.
 		ranked = rankNN(q, refs, nn, sczlIx, qd)
 	} else {

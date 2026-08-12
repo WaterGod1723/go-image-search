@@ -201,6 +201,130 @@ neural (MLP)      : recall@1 = 114/118 (96.6%)   recall@3 = 116/118 (98.3%)   re
 - 命令：`search.exe . sweep train_set`（一次 prep 训 6 个架构，各自存
   `weights_net*.gob`）；`search.exe . nnarch weights_netX.gob`（评测）。
 
+### 注意力特征融合实验（2026，把定稿 MLP 的融合换成注意力机制）
+
+> 用户诉求：把「MLP 特征融合」替换成「注意力机制」看效果。输入 `x` 天然是 3 个
+> 特征块（`pair` / `best` / `gap`，各 pf=27/32 维），故把 3 块当作 3 个 token 做
+> 注意力融合，输出仍是 pointwise BCE 的 sigmoid 相关度。实现替换 `search/nn.go` 的
+> `MLP` → `AttnNet`，外部接口（`forward`/`predict`/`backprop`/`save`/`loadAttnNet`）
+> 与排序管线（`rankNN`/`trainAt1`/`server.loadNN`）不变，仅 `server.loadNN` 的 shape
+> 校验改用 `AttnNet.valid()`。统一在 8000 训练图 / pointwise BCE / 两阶段
+> rankNNPri + SC 精排下对比。
+
+**v1（3-token 单头，固定 query，共享 K/V，无 FFN，attnKey=64）**：test 崩到 85.0%@1。
+- 教训：3 个 token 太少、注意力无可聚焦；query 是固定学习向量、与输入无关，
+  学不到「随查询难度自适应融合」；且无深层非线性。在该任务上甚至不如 baseline。
+
+**v2（3-token 单头，数据相关 query + 每块独立 K/V + FFN/残差，attnKey=96）**：
+test 96.7%@1 / 97.5%@3，追平定稿 MLP（96.6%/98.3%）。
+- 有效优化点：① query 由 `pair` 块经 `WQ` 生成（数据相关），让注意力随样本自适应；
+  ② 每块独立 K/V 投影（不再共享）；③ 注意力输出过 FFN+残差补非线性；④ attnKey 64→96。
+- 结论：注意力融合在当前 3 块 token 布局上最多「追平」pointwise MLP，未超过 ——
+  与 §「架构横向实验」结论一致（该特征集、pointwise BCE 下模型已封顶）。注意力
+  的优势（长序列/多 token 聚焦）在只有 3 个特征块时发挥不出来。
+
+| 方案 | test recall@1 | @3 | @5 |
+| --- | --- | --- | --- |
+| baseline adaptive | 92.5% | 93.3% | 93.3% |
+| 定稿 pointwise MLP（记录值） | 96.6% | 98.3% | — |
+| attn v1（固定 query，3-token） | 85.0% | 91.7% | 91.7% |
+| **attn v2（数据 query + 独立 K/V + FFN）** | **96.7%** | **97.5%** | **97.5%** |
+| **attn v3（v2 升级为 4 头注意力）** | **96.7%** | **97.5%** | **97.5%** |
+| **attn v4（语义 token 拆分，仅 base 作 query）** | 95.0% | 97.5% | 98.3% |
+| **attn v5（v4 语义 token + 完整 pair 作 query）** | 96.7% | 97.5% | 97.5% |
+| **attn RING（v5 + RINGFEAT 逐环特征扩维）** | 96.7% | 98.3% | 98.3% |
+| **attn REGION（v5 + 多区域维度，去 RINGFEAT）** | 96.7% | 98.3% | **100.0%** |
+| **attn COLOR（v5 + 32×32 颜色投影直方图，去REGION）** | **97.5%** | 98.3% | 98.3% |
+| **attn COLOR-B（16×16 逐格颜色相似度，方案B）** | 97.5% | 97.5% | 98.3% |
+
+**v3（多头注意力）**：v2 的每块独立 K/V 拆成 `nHead=4` 个头（headDim=24），每头有自己的
+数据相关 query、独立 K/V 投影，对 3 个 token 各自出注意力分布，concat 后过同一 FFN。
+- 参数量与 v2 相同（WQ/WK/WV 总量不变），但让不同头可专注不同特征族。
+- 结果：test 与 v2 逐位相同（96.7%@1 / 97.5%@3），未提升。
+- 结论：单头/多头在 3 token 特征块上无差别 —— 该特征集 + pointwise BCE + SC 精排下
+  模型确已封顶（与 §架构横向实验一致），注意力容量不是瓶颈，瓶颈在特征种类与分割质量。
+
+**v4/v5（语义 token 拆分）**：把 pair 块按特征族拆成独立 token（base 8 / bias 2 /
+polar-shape 细节 16 / sczl），key/value 各 token 独立投影，query 用完整 pair 块。
+- v4 曾把 query 限制在 base 8 维 → 信息不足，recall@1 掉到 95.0%；v5 恢复完整 pair 作
+  query → 回到 96.7%。结论：query 必须吃完整 pair 特征，语义拆分本身不带来增益。
+
+**RING（特征扩维，后已移除）**：pair 特征曾从 27 维扩到 59 维（SCZLSPLIT 下 64 维）——
+除原有 16 维逐环 polar-shape 细节外，新增逐环 Radial 余弦（16 维）与逐环 AngMag 余弦
+（16 维，`perRingCos`）。`RINGFEAT=1`+`SCZLSPLIT=1` 评测 96.7%@1 / 98.3%@3 / 98.3%@5。
+- **结论：效果不明显（@1 未提升、@3/@5 各 +0.8pp 但维度从 27 翻倍到 59），已移除**，
+  避免 32 维逐环特征与 base 里的全局余弦高度重复、稀释有效信号。
+
+**REGION（多区域维度，后已移除）**：用户观察——真实检索查询多是组合图（多个图标/区域
+拼在一起），检索目标只是其中一部分，而 `extractQuery` 会把所有内部连通域**合并**成一个
+sprite，特征混合了多个物体，且多区域本身没有信号进模型。曾新增 **1 个 region 维度**
+（`Feat.Region`，`feat.go` `regionFrag`）：`1 - 最大8连通域像素数/总前景像素数`，量化
+查询前景的碎片化程度（单图标≈0，多区域组合图≈1）。作为独立 token 加入 pair 特征
+（pair 26→27 维，SCZLSPLIT 下 31→32 维），query 吃完整 pair 块。
+- 分布验证：120 查询 avg=0.242；多部件图标高（edit_square 0.557、home_work 0.565、
+  account_balance 0.525），单图标低。
+- `SCZLSPLIT=1`：test **96.7%@1 / 98.3%@3 / 100.0%@5**（首次 @5 全中），train@1 峰值
+  98.2%。维度比 RING 更少（输入 96 维）却 @5 提升 1.7pp。
+- **结论：@1 未提升（仍是 96.7%），且只编码"碎片程度"一个标量、不带空间/颜色布局，
+  已移除**，被下文 COLOR 方案（空间颜色布局）取代。
+
+**COLOR（32×32 颜色投影直方图，当前定稿）**：在上文组合图观察基础上，把查询的**空间
+颜色布局**直接喂给模型。方案：`feat.go` `buildColorProj` 把 sprite bbox 补成方形
+（letterbox，居中留边）→ 缩放到 32×32 → 记录每行/每列的**平均 RGB**，输出
+`32*3 + 32*3 = 192 维`（`Feat.ColorProj`）；作为独立 color token 追加到输入末尾
+（`nnInput = 3*pf + 192`，SCZLSPLIT 下 288 维）。query 级静态特征，方案 A。
+- 动机：目标是组合图的一部分时，其所在行/列留有明显的颜色签名；`PolarCol` 是极坐标
+  （展开角度、丢笛卡尔位置），`Hist` 是全局直方图（无空间），此特征补上笛卡尔空间色块。
+  sczl 的 `Occupancy32`/`Patch` 只有形状/灰度，无彩色。
+- `SCZLSPLIT=1`：test **97.5%@1**（历史最佳，miss 4→3，`account_balance` 被召回）/
+  98.3%@3 / 98.3%@5，train@1 峰值 98.5%。nnInput 273→288 维。
+- 剩余 3 miss 均为已知灰色族硬例：分割受损 home_work、dashboard、phone_in_talk。
+
+**COLOR 方案 A vs B（对比）**：A（32×32 投影直方图，query 静态色块）与 B（16×16 逐格
+颜色相似度，query↔ref pair 特征）对比：
+- A：`Feat.ColorProj` 192 维 + 独立 token（nnInput 288）；`buildColorProj` 算行/列平均 RGB。
+- B：`Feat.ColorGrid16` 768 维 + `colorGridSim` 逐格余弦，256 维嵌入 pair（nnInput 849）；
+  `nnVec` 不必加 color（相似度已进 pair）。
+- 结果：@1 同为 97.5%，但 A 的 @3 98.3% > B 的 97.5%，且 B 训练贵 ~3 倍（849 维，
+  60 epoch 78 分钟）。**A 更优，定稿用 A**；B 因维度膨胀、收益不增而弃用。
+
+**验证：旋转干扰诊断（ноrot 测试集）**：怀疑 3 个灰色 miss 是旋转干扰所致，给 gentest 加
+`-norot` 开关（`render.go` 旋转概率归零），用 seed 20260716 重新生成 120 张无旋转测试集
+`test_set_norot`（manifest 确认全部 rotation=0），用 A 权重重新评测：
+- 原（90% 旋转）测试集：NN 97.5/98.3/98.3，baseline 92.5/93.3/93.3。
+- 无旋转测试集：**NN 100.0/100.0/100.0**，baseline 88.3/89.2/91.7。
+- 原 3 个 miss 的旋转角：home_work 29.8°、dashboard -159.9°、phone_in_talk 24.4° —— 全部带明显旋转。
+- 结论：**3 个 miss 的根因是旋转干扰**（薄线条灰色图标在任意角度旋转后形状特征衰减），
+  模型形状能力本身够用；继续在训练层面加形状权重收益有限，方向应转向**旋转鲁棒**。
+
+**COLOR 方案 C（10×10 颜色 + query 静态形状 token，已尝试）**：同时做两个改动：颜色投影
+32×32 → 10×10（192 维 → 60 维），并新增 query 静态形状 token `Feat.Shape`
+（Radial 16 + Zernike 49 + 4 标量 aspect/fill/rms/boundary = 69 维，`buildQueryShape`），
+layout 变 8 token（nnInput 225，PF 现显式=3*pf）。本想让网络感知 query 的**绝对形状**
+以补 relative 相似度的盲区。
+- 结果：test **97.5/97.5/97.5**，仍是同样 3 个灰色 miss（home_work/dashboard/phone_in_talk），
+  形状 token 未召回任何 miss；@3/@5 比 A 差 0.8pp，train@1 收敛也低于 A（峰值 97.8% vs 98.5%）。
+- 结论：**混做无提升**（与预判一致：3 miss 全是灰色图标，减分辨率的颜色 + 绝对形状都
+  救不了真实灰色形状混淆），已回退到 A。
+
+实现细节：
+- `nn.go` `AttnNet`：`q=WQ·pair`，`k_t/v_t = WK[t]/WV[t]·block_t`，`alpha=softmax(q·k/√d)`，
+  `ctx=Σ alpha·v`，`ctx+=FFN(ctx)`，`p=sigmoid(WO·ctx+BO)`；backprop 相应手写。
+- 注意：gob 只编码导出字段，`b1/b2/pf` 必须导出（`B1/B2/PF`），否则 load 后权重残缺。
+- 命令：`search.exe . train train_set weights_attn2.gob 60 0.002`；`search.exe . nn weights_attn2.gob`。
+- v3 多头：`search.exe . train train_set weights_attn3.gob 60 0.002`（`nHead=4, headDim=24`，
+  权重拆为 `[nHead][]float64` / `[nHead][nTok][]float64`，`valid()` 校验形状）。
+- v4/v5 语义 token：`computePairs` 不变，`attnLayout()` 把 pair 拆成 base/bias/detail/sczl
+  独立 token（best/gap 仍各 1 token）；query 用完整 pair 块（`WQ: attnKey x pf`）。
+- REGION 多区域维度（已移除）：`feat.go` `Feat.Region` + `regionFrag` 在 `buildFeat` 计算；
+  `computePairs` 把 `q.Region` 追加为 pair 特征（base 后第 3 维）；`attnLayout()` 多出
+  region token（dims `{8,2,1,16,sczlDim,pf,pf}`）。训练/评测：
+  `SCZLSPLIT=1 search.exe . train train_set weights_region.gob 60 0.002`。
+- COLOR 颜色投影直方图（当前定稿，替代 REGION）：`buildColorProj` 在 `buildFeat` 计算
+  `ColorProj`（192 维）；`nnVec` 追加 color 块，`nnQuery` 缓存 `color` 字段；
+  `attnLayout()` 末尾加 color token（dims `{8,2,16,sczlDim,pf,pf,192}`，nnInput 273→288）。
+  训练/评测：`SCZLSPLIT=1 search.exe . train train_set weights_color.gob 60 0.002`。
+
 ### 卷积/循环网络特征提取实验（2026，结论：纯 CNN 在原始网格上不敌特征 MLP）
 
 > 用户诉求：尝试 CNN / RNN 提取特征能否提升。在纯 stdlib（无框架）约束下，
