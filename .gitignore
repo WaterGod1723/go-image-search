@@ -26,12 +26,36 @@ go.work.sum
 .searchcache/
 dump/
 segdump/
+build/
+.codegraph/
+
+# Search index (regenerable)
+index.bin
+index.bin.sczl
+
+# NN weights (regenerable)
+weights_base.gob
+weights_reg.gob
+weights_small.gob
+
+# Scraped / generated data
+scraped_icons/
+test_pngs/
 
 # Generated test fixtures (uncomment to ignore)
 # test_set/
 
 # NN training fixtures (157MB, regenerable: go run ./gentest -n 4000 -seed 20260715 -out train_set)
 train_set/
+
+# Frontend build output
+frontend/dist/
+frontend/wailsjs/
+frontend/package.json.md5
+
+# Node modules
+node_modules
+**/node_modules/
 
 # Editor / IDE
 .vscode/
