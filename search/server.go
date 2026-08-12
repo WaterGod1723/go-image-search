@@ -100,7 +100,7 @@ type server struct {
 func newServer(root string) *server {
 	s := &server{
 		root:      root,
-		refDir:    filepath.Join(root, "test_pngs"),
+		refDir:    refDir(root),
 		cachePath: filepath.Join(root, ".searchcache", "index.gob"),
 		qCache:    make(map[[32]byte]*searchResponse, queryCacheCap),
 	}

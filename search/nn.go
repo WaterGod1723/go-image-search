@@ -91,6 +91,15 @@ type MLP struct {
 	BA1    []float64 // nnIP
 	WA2    []float64 // nnP x nnIP (input attention up-projection)
 	BA2    []float64 // nnP
+
+	// dropout regularization (training only). dropKeep is the keep-probability
+	// (1.0 = disabled); dropMask is the per-h1 Bernoulli mask drawn on the loss
+	// forward pass and reused by the matching backprop (reuse=true skips a
+	// fresh draw so the gradient matches the activations the loss saw).
+	dropKeep float64
+	dropMask []float64
+	reuse    bool
+	train    bool
 }
 
 func newMLP(seed int64) *MLP {
@@ -203,6 +212,26 @@ func (m *MLP) forward(x []float64) (float64, []float64, []float64, []float64, []
 		h1[j] = relu(acc)
 	}
 
+	// dropout on h1 (training only): invert mask drawn once per sample (the loss
+	// forward) and reused by the backprop forward (reuse=true).
+	if m.train && m.dropKeep < 1.0 {
+		if m.dropMask == nil {
+			m.dropMask = make([]float64, nnH1)
+		}
+		if !m.reuse {
+			for j := 0; j < nnH1; j++ {
+				if rand.Float64() < m.dropKeep {
+					m.dropMask[j] = 1
+				} else {
+					m.dropMask[j] = 0
+				}
+			}
+		}
+		for j := 0; j < nnH1; j++ {
+			h1[j] *= m.dropMask[j] / m.dropKeep
+		}
+	}
+
 	gate := make([]float64, nnH1)
 	vh := make([]float64, nnSE)
 	if m.WSE1 != nil {
@@ -247,6 +276,11 @@ func (m *MLP) forward(x []float64) (float64, []float64, []float64, []float64, []
 }
 
 func (m *MLP) predict(x []float64) float64 {
+	if m.train {
+		prev := m.train
+		m.train = false
+		defer func() { m.train = prev }()
+	}
 	p, _, _, _, _, _, _, _ := m.forward(x)
 	return p
 }
@@ -371,7 +405,10 @@ func newGrads(m *MLP) *grads {
 // backprop accumulates the (weighted) BCE gradient for one (x, y) sample into
 // g. w is a per-sample loss weight used to balance positive/negative classes.
 func (m *MLP) backprop(g *grads, x []float64, y float64, w float64) {
+	prev := m.reuse
+	m.reuse = true
 	p, xIn, h1, gate, vh, gIn, vIn, h2 := m.forward(x)
+	m.reuse = prev
 	dO := (p - y) * w // dL/dz for BCE with sigmoid
 
 	// output layer
@@ -500,13 +537,19 @@ func (m *MLP) backprop(g *grads, x []float64, y float64, w float64) {
 	}
 }
 
-// step applies one Adam update using the mean gradient over n samples.
-func (a *adamState) step(m *MLP, g *grads, n int, lr float64) {
+// step applies one Adam update using the mean gradient over n samples. l2 is
+// the weight-decay rate (0 disables): each weight is shrunk by (1-lr*l2) per
+// step, decoupled from the gradient magnitude (AdamW-style).
+func (a *adamState) step(m *MLP, g *grads, n int, lr float64, l2 float64) {
 	a.t++
 	t := float64(a.t)
 	b1m, b2m := 0.9, 0.999
 	eps := 1e-8
 	inv := 1 / float64(n)
+	decay := 1.0
+	if l2 > 0 {
+		decay = 1 - lr*l2
+	}
 
 	adamVec := func(w, mw, vw, gw []float64) {
 		for i := range w {
@@ -515,6 +558,9 @@ func (a *adamState) step(m *MLP, g *grads, n int, lr float64) {
 			vw[i] = b2m*vw[i] + (1-b2m)*gi*gi
 			mh := mw[i] / (1 - math.Pow(b1m, t))
 			vh := vw[i] / (1 - math.Pow(b2m, t))
+			if decay != 1 {
+				w[i] *= decay
+			}
 			w[i] -= lr * mh / (math.Sqrt(vh) + eps)
 		}
 	}

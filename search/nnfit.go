@@ -1,4 +1,4 @@
-package main
+﻿package main
 
 import (
 	"fmt"
@@ -15,10 +15,21 @@ import (
 	"image-search-test/search/sczl"
 )
 
-// buildRefIndex loads the reference sprites (test_pngs) exactly like the eval
-// path does.
+// refDir resolves the reference-sprite directory. Defaults to test_pngs, but
+// REFS_DIR overrides it (relative to root) so training and evaluation can use
+// disjoint icon pools — e.g. scraped_icons/train for training and
+// scraped_icons/test for eval — forcing the model to generalize to never-seen
+// icons instead of memorizing the 96 refs shared by both sets.
+func refDir(root string) string {
+	if d := os.Getenv("REFS_DIR"); d != "" {
+		return filepath.Join(root, d)
+	}
+	return filepath.Join(root, "test_pngs")
+}
+
+// buildRefIndex loads the reference sprites exactly like the eval path does.
 func buildRefIndex(root string) ([]*Feat, []string) {
-	return indexRefs(filepath.Join(root, "test_pngs"))
+	return indexRefs(refDir(root))
 }
 
 // queryMasks precomputes the 90 rotated copies of a query's 64x64 mask once.
@@ -157,6 +168,10 @@ func polarShiftDetail(q, r *Feat) []float64 {
 func computePairs(q *Feat, refs []*Feat, qm *queryMasks, sczlSub [][5]float64) [][]float64 {
 	out := make([][]float64, len(refs))
 	hists := make([]float64, len(refs))
+	var qmAttn *queryMasks
+	if q.AttnQ != nil {
+		qmAttn = newQueryMasks(q.AttnQ.Mask48)
+	}
 	for i, r := range refs {
 		s := scores(q, r)
 		hists[i] = s[0]
@@ -182,13 +197,19 @@ func computePairs(q *Feat, refs []*Feat, qm *queryMasks, sczlSub [][5]float64) [
 			out[i] = append(out[i], gate, mono)
 		}
 		out[i] = append(out[i], polarShiftDetail(q, r)...)
-		if sczlSub != nil {
+		if sczlSub != nil && i < len(sczlSub) {
 			out[i] = append(out[i], sczlSub[i][:]...)
 		} else {
 			out[i] = append(out[i], 0, 0, 0, 0, 0)
 		}
-		if q.AttnStats != nil {
-			out[i] = append(out[i], q.AttnStats...)
+		if q.AttnQ != nil {
+			// second query expert: similarities of the attention-region
+			// descriptor, so the network gets image features of the icon region
+			// rather than the raw attention map.
+			sq := scores(q.AttnQ, r)
+			out[i] = append(out[i], sq[0], sq[1], sq[2], sq[3], sq[4], sq[5], sq[6], qmAttn.score(r.Mask48))
+		} else {
+			out[i] = append(out[i], 0, 0, 0, 0, 0, 0, 0, 0)
 		}
 	}
 	return out
@@ -425,7 +446,7 @@ func runTrain(root string, args []string) {
 	entries := loadManifest(trainDir)
 
 	tPrep := time.Now()
-	sczlIx := buildSCZLRefs(root)
+	sczlIx := buildSCZLRefs(root, refNames)
 	attnW, err := loadAttnModel()
 	if err != nil {
 		fatal(err)
@@ -449,15 +470,17 @@ func runTrain(root string, args []string) {
 			return
 		}
 		var px []Px
-		var astat []float64
+		var attnQ *Feat
 		if attnW != nil {
-			attn, stats := attnW.attnFor(img)
+			attn := attnW.attnFor(img)
 			if attnExtractOn() {
 				px = extractQueryAttn(img, attn)
 			} else {
 				px = extractQuery(img)
 			}
-			astat = stats
+			if aq := attnQueryPixels(img, attn); len(aq) > 0 {
+				attnQ = buildFeat(aq)
+			}
 		} else {
 			px = extractQuery(img)
 		}
@@ -475,7 +498,7 @@ func runTrain(root string, args []string) {
 			return
 		}
 		q := buildFeat(px)
-		q.AttnStats = astat
+		q.AttnQ = attnQ
 		prep[i] = qPrep{e: e, trueIdx: ti, q: q, qd: sczl.Extract(img)}
 		valid[i] = true
 	})
@@ -503,16 +526,39 @@ func runTrain(root string, args []string) {
 
 	// Phase 2 (serial): build samples. Per query: 1 positive (the true ref) +
 	// hard negatives (histogram-closest refs) + a few random negatives, so the
-	// model spends its capacity on the confusable gray-outline families.
+	// model spends its capacity on the confusable gray-outline families. A
+	// fraction (NN_VAL, default 0.15) of queries is held out as validation so
+	// overfitting is visible per-epoch and the best epoch is saved.
+	valFrac := 0.15
+	if v := os.Getenv("NN_VAL"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 && f < 1 {
+			valFrac = f
+		}
+	}
+	vrng := rand.New(rand.NewSource(99))
+	perm := make([]int, len(queries))
+	for i := range perm {
+		perm[i] = i
+	}
+	vrng.Shuffle(len(perm), func(i, j int) { perm[i], perm[j] = perm[j], perm[i] })
+	nVal := int(float64(len(queries)) * valFrac)
+	isVal := make([]bool, len(queries))
+	for i := 0; i < nVal; i++ {
+		isVal[perm[i]] = true
+	}
+
 	var samples []nnSample
 	for i := range queries {
+		if isVal[i] {
+			continue
+		}
 		qu := &queries[i]
 		samples = append(samples, nnSample{x: nnVec(qu.pairs[qu.trueIdx], qu.best, qu.gap), y: 1, w: 1})
 		for _, j := range hardNegs(qu, i) {
 			samples = append(samples, nnSample{x: nnVec(qu.pairs[j], qu.best, qu.gap), y: 0, w: 1})
 		}
 	}
-	fmt.Printf("samples: %d\n", len(samples))
+	fmt.Printf("samples: %d (val queries: %d)\n", len(samples), nVal)
 
 	// class-balanced BCE weights
 	nPos, nNeg := 0, 0
@@ -537,12 +583,32 @@ func runTrain(root string, args []string) {
 
 	m := newMLP(42)
 	adam := newAdam(m)
+	dropKeep := 1.0
+	if v := os.Getenv("NN_DROP"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 && f < 1 {
+			dropKeep = 1 - f
+		}
+	}
+	l2rate := 0.0
+	if v := os.Getenv("NN_L2"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			l2rate = f
+		}
+	}
+	m.dropKeep = dropKeep
+	fmt.Printf("regularization: dropout=%.2f l2=%.4f val=%d queries\n", 1-dropKeep, l2rate, nVal)
+	// save a copy of the best (by val@1) weights; loadMLP into a throwaway for
+	// eval so the training MLP keeps its own state.
+	best := newMLP(42)
+	bestVal := -1.0
+
 	rng := rand.New(rand.NewSource(7))
 	order := make([]int, len(samples))
 	for i := range order {
 		order[i] = i
 	}
 	t0 := time.Now()
+	m.train = true
 	for ep := 0; ep < epochs; ep++ {
 		rng.Shuffle(len(order), func(i, j int) { order[i], order[j] = order[j], order[i] })
 		var loss float64
@@ -556,22 +622,49 @@ func runTrain(root string, args []string) {
 				loss += -s.w * (s.y*mathLog(p) + (1-s.y)*mathLog(1-p))
 				m.backprop(g, s.x, s.y, s.w)
 			}
-			adam.step(m, g, n, lr)
+			adam.step(m, g, n, lr, l2rate)
 		}
-		if ep%4 == 0 || ep == epochs-1 {
+		// evaluate on train and val, save best-val weights
+		m.train = false
+		tOk := trainAt1(m, queries, isVal, false)
+		vOk := 0
+		vN := 0
+		for i := range queries {
+			if isVal[i] {
+				vN++
+				if bestIdxOf(m, &queries[i]) == queries[i].trueIdx {
+					vOk++
+				}
+			}
+		}
+		m.train = true
+		if vN > 0 {
+			valRate := float64(vOk) / float64(vN)
+			if valRate > bestVal {
+				bestVal = valRate
+				copyMLP(best, m)
+			}
+			if ep%4 == 0 || ep == epochs-1 {
+				t1 := time.Now()
+				fmt.Printf("epoch %d/%d  loss=%.4f  train@1=%d/%d (%.1f%%)  val@1=%d/%d (%.1f%%)  bestVal=%.1f%%  [%.1fs]\n",
+					ep+1, epochs, loss/float64(len(samples)), tOk, len(queries)-vN,
+					100*float64(tOk)/float64(len(queries)-vN), vOk, vN, 100*valRate,
+					100*bestVal, t1.Sub(t0).Seconds())
+			}
+		} else if ep%4 == 0 || ep == epochs-1 {
 			t1 := time.Now()
-			ok := trainAt1(m, queries)
 			fmt.Printf("epoch %d/%d  loss=%.4f  train@1=%d/%d (%.1f%%)  [%.1fs]\n",
-				ep+1, epochs, loss/float64(len(samples)), ok, len(queries),
-				100*float64(ok)/float64(len(queries)), t1.Sub(t0).Seconds())
+				ep+1, epochs, loss/float64(len(samples)), tOk, len(queries),
+				100*float64(tOk)/float64(len(queries)), t1.Sub(t0).Seconds())
 		}
 	}
-	fmt.Printf("epoch phase: %.1fs\n", time.Since(t0).Seconds())
+	m.train = false
+	fmt.Printf("epoch phase: %.1fs (best val@1=%.1f%%)\n", time.Since(t0).Seconds(), 100*bestVal)
 
-	if err := m.save(weightsPath); err != nil {
+	if err := best.save(weightsPath); err != nil {
 		fatal(err)
 	}
-	fmt.Printf("weights saved to %s\n", weightsPath)
+	fmt.Printf("weights saved to %s (best-val epoch)\n", weightsPath)
 }
 
 func buildNNQuery(q *Feat, refs []*Feat, sczlIx *sczl.Index, qd sczl.Descriptor, trueIdx int) nnQuery {
@@ -581,22 +674,20 @@ func buildNNQuery(q *Feat, refs []*Feat, sczlIx *sczl.Index, qd sczl.Descriptor,
 }
 
 // buildSCZLRefs extracts the sczl descriptor of every reference sprite, as the
-// second expert's index.
-func buildSCZLRefs(root string) *sczl.Index {
-	srcDir := filepath.Join(root, "test_pngs")
-	files, err := listPNG(srcDir)
-	if err != nil {
-		fatal(err)
-	}
+// second expert's index. The index is built strictly aligned 1:1 with the refs
+// slice (using the same names, in the same order): descriptors that fail
+// extraction are added as invalid placeholders so training/eval sub-score
+// slicing never runs off the end.
+func buildSCZLRefs(root string, names []string) *sczl.Index {
+	srcDir := refDir(root)
 	ix := sczl.New()
-	for _, fn := range files {
+	for _, fn := range names {
 		img, err := loadPNG(filepath.Join(srcDir, fn))
 		if err != nil {
 			fatal(err)
 		}
-		if d := sczl.Extract(img); d.Valid {
-			ix.AddImage(fn, d)
-		}
+		d := sczl.Extract(img)
+		ix.AddImage(fn, d)
 	}
 	return ix
 }
@@ -631,21 +722,55 @@ func parFor(n int, fn func(i int)) {
 	wg.Wait()
 }
 
-func trainAt1(m *MLP, queries []nnQuery) int {
+// bestIdxOf returns the ref index with the highest predicted relevance for
+// query i (used for val@1 evaluation).
+func bestIdxOf(m *MLP, qu *nnQuery) int {
+	bestScore, bestIdx := -1.0, -1
+	for j := range qu.pairs {
+		if v := m.predict(nnVec(qu.pairs[j], qu.best, qu.gap)); v > bestScore {
+			bestScore, bestIdx = v, j
+		}
+	}
+	return bestIdx
+}
+
+func trainAt1(m *MLP, queries []nnQuery, isVal []bool, valOnly bool) int {
 	ok := 0
 	for i := range queries {
-		qu := &queries[i]
-		bestScore, bestIdx := -1.0, -1
-		for j := range qu.pairs {
-			if v := m.predict(nnVec(qu.pairs[j], qu.best, qu.gap)); v > bestScore {
-				bestScore, bestIdx = v, j
-			}
+		if isVal != nil && isVal[i] != valOnly {
+			continue
 		}
-		if bestIdx == qu.trueIdx {
+		if bestIdxOf(m, &queries[i]) == queries[i].trueIdx {
 			ok++
 		}
 	}
 	return ok
+}
+
+// copyMLP deep-copies the weight slices of src into dst.
+func copyMLP(dst, src *MLP) {
+	cp := func(dst *[]float64, src []float64) {
+		if src == nil {
+			*dst = nil
+			return
+		}
+		*dst = append((*dst)[:0], src...)
+	}
+	cp(&dst.W1, src.W1)
+	cp(&dst.B1, src.B1)
+	cp(&dst.W2, src.W2)
+	cp(&dst.B2, src.B2)
+	cp(&dst.W3, src.W3)
+	cp(&dst.B3, src.B3)
+	cp(&dst.WSE1, src.WSE1)
+	cp(&dst.BSE1, src.BSE1)
+	cp(&dst.WSE2, src.WSE2)
+	cp(&dst.BSE2, src.BSE2)
+	cp(&dst.WA1, src.WA1)
+	cp(&dst.BA1, src.BA1)
+	cp(&dst.WA2, src.WA2)
+	cp(&dst.BA2, src.BA2)
+	dst.dropKeep = src.dropKeep
 }
 
 func mathLog(x float64) float64 {
@@ -742,7 +867,7 @@ func runRankReport(root string, args []string) {
 	// signature (Fourier + radial, rotation-invariant, no scan).
 	refsSCZL := make([]sczl.Descriptor, len(refs))
 	{
-		files, err := listPNG(filepath.Join(root, "test_pngs"))
+		files, err := listPNG(refDir(root))
 		if err != nil {
 			fatal(err)
 		}
@@ -752,7 +877,7 @@ func runRankReport(root string, args []string) {
 		}
 		for _, fn := range files {
 			if i, ok := byName[fn]; ok {
-				if img, err := loadPNG(filepath.Join(root, "test_pngs", fn)); err == nil {
+				if img, err := loadPNG(filepath.Join(refDir(root), fn)); err == nil {
 					refsSCZL[i] = sczl.Extract(img)
 				}
 			}
@@ -965,7 +1090,7 @@ func runNNEval(root string, args []string) {
 	}
 	refs, refNames := buildRefIndex(root)
 	fmt.Printf("index: %d reference sprites\n", len(refs))
-	sczlIx := buildSCZLRefs(root)
+	sczlIx := buildSCZLRefs(root, refNames)
 	attnW, err := loadAttnModel()
 	if err != nil {
 		fatal(err)
@@ -996,15 +1121,17 @@ func runNNEval(root string, args []string) {
 			fatal(err)
 		}
 		var px []Px
-		var astat []float64
+		var attnQ *Feat
 		if attnW != nil {
-			attn, stats := attnW.attnFor(img)
+			attn := attnW.attnFor(img)
 			if attnExtractOn() {
 				px = extractQueryAttn(img, attn)
 			} else {
 				px = extractQuery(img)
 			}
-			astat = stats
+			if aq := attnQueryPixels(img, attn); len(aq) > 0 {
+				attnQ = buildFeat(aq)
+			}
 		} else {
 			px = extractQuery(img)
 		}
@@ -1012,7 +1139,7 @@ func runNNEval(root string, args []string) {
 			return
 		}
 		q := buildFeat(px)
-		q.AttnStats = astat
+		q.AttnQ = attnQ
 		if os.Getenv("NNFEAT") == "1" && e.Image == "sample_00004.png" {
 			dumpNNFeat(e.Image, e.Src, q, refs, refNames)
 		}
@@ -1114,3 +1241,4 @@ func runNNEval(root string, args []string) {
 		}
 	}
 }
+

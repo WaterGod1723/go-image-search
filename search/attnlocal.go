@@ -19,9 +19,11 @@ import (
 //  1. query extraction refinement: the extracted sprite pixels are re-weighted
 //     by how strongly the network believes they belong to the icon region, so
 //     background / text leakage the heuristics kept is suppressed;
-//  2. MLP conditioning features: 8 compact attention statistics are appended to
-//     the pair-feature block (constant within a query), letting the fusion
-//     network condition on the attention localization.
+//  2. an attention-region query expert: the pixels inside the attention box are
+//     extracted and their image descriptor (buildFeat) is built; the per-ref
+//     similarities of that descriptor are appended to the pair block, giving
+//     the fusion network a second query whose features only describe the icon
+//     region (instead of passing the raw attention values).
 //
 // The input grid and patch size must match attnnet.Default(): 48x48, 6x6 patch,
 // 8x8 = 64 tokens.
@@ -35,14 +37,14 @@ const (
 )
 
 // attnWeighter wraps the loaded attention model. It is stateless between
-// queries: attnFor returns fresh per-query attention and statistics.
+// queries: attnFor returns a fresh per-query attention map.
 type attnWeighter struct {
 	m *attnnet.Model
 }
 
 // attnExtractOn reports whether the attention map should also refine the query
 // sprite extraction. ATTN_NOEXTRACT=1 keeps the heuristic extraction unchanged
-// and only feeds the attention statistics to the network (ablation).
+// and only feeds the attention-region features to the network (ablation).
 func attnExtractOn() bool {
 	return os.Getenv("ATTN_NOEXTRACT") != "1"
 }
@@ -62,10 +64,97 @@ func loadAttnModel() (*attnWeighter, error) {
 }
 
 // attnFor runs the attention model on the query canvas and returns the 64
-// attention values (softmax over the 8x8 grid) plus 8 compact statistics.
-func (aw *attnWeighter) attnFor(img *image.NRGBA) ([]float64, []float64) {
-	a := aw.m.Predict(attnInput(img))
-	return a, attnStats(a)
+// attention values (softmax over the 8x8 grid).
+func (aw *attnWeighter) attnFor(img *image.NRGBA) []float64 {
+	return aw.m.Predict(attnInput(img))
+}
+
+// attnBox returns the canvas-space bounding box of the attention region: the
+// 8x8 cells with attention >= 0.5*max, upscaled to the canvas. The fallback
+// (degenerate / flat attention) is the whole canvas.
+func attnBox(attn []float64, w, h int) (x0, y0, x1, y1 int) {
+	var mx float64
+	for _, v := range attn {
+		if v > mx {
+			mx = v
+		}
+	}
+	th := 0.5 * mx
+	x0, y0, x1, y1 = w, h, -1, -1
+	cellW := float64(attnPatch) / attnSize * float64(w)
+	cellH := float64(attnPatch) / attnSize * float64(h)
+	for py := 0; py < attnGrid; py++ {
+		for px := 0; px < attnGrid; px++ {
+			if attn[py*attnGrid+px] < th {
+				continue
+			}
+			cx0 := int(float64(px) * cellW)
+			cx1 := int(float64(px+1)*cellW) - 1
+			cy0 := int(float64(py) * cellH)
+			cy1 := int(float64(py+1)*cellH) - 1
+			if cx0 < x0 {
+				x0 = cx0
+			}
+			if cx1 > x1 {
+				x1 = cx1
+			}
+			if cy0 < y0 {
+				y0 = cy0
+			}
+			if cy1 > y1 {
+				y1 = cy1
+			}
+		}
+	}
+	if x1 < x0 || y1 < y0 {
+		return 0, 0, w - 1, h - 1
+	}
+	return x0, y0, x1, y1
+}
+
+// attnQueryPixels extracts the sprite pixels inside the attention box, reusing
+// the fg/bg distance heuristic but only within the box so text and stray
+// background outside the icon region cannot pollute the descriptor. Returns nil
+// when the attention is too flat / the box too large to be a confident icon
+// localization (the expert is then skipped).
+func attnQueryPixels(img *image.NRGBA, attn []float64) []Px {
+	w, h := img.Bounds().Dx(), img.Bounds().Dy()
+	var mx, sum float64
+	for _, v := range attn {
+		sum += v
+		if v > mx {
+			mx = v
+		}
+	}
+	if sum <= 0 || mx/sum < 0.045 { // ~3x uniform: map not peaked
+		return nil
+	}
+	x0, y0, x1, y1 := attnBox(attn, w, h)
+	if x1-x0 <= 4 || y1-y0 <= 4 {
+		return nil // box too small: degenerate attention, skip the expert
+	}
+	boxFrac := float64((x1 - x0 + 1) * (y1 - y0 + 1)) / float64(w*h)
+	if boxFrac > 0.6 {
+		return nil // box too large: not a confident icon region
+	}
+	bg := estimateBG(img)
+	var px []Px
+	for y := y0; y <= y1; y++ {
+		for x := x0; x <= x1; x++ {
+			i := img.PixOffset(x, y)
+			p := Px{X: x, Y: y, R: img.Pix[i], G: img.Pix[i+1], B: img.Pix[i+2]}
+			if rgbDist(p, bg) <= 0.16 {
+				continue
+			}
+			d := rgbDist(p, bg) / 0.2
+			if d > 1 {
+				d = 1
+			}
+			p.A = d
+			px = append(px, p)
+		}
+	}
+	return px
 }
 
 // attnInput downsamples a query canvas to the 48x48 RGB block the model reads.
@@ -163,60 +252,4 @@ func attnWeightAt(attn []float64, x, y, w, h int) float64 {
 		v = 0.05
 	}
 	return v
-}
-
-// attnStats condenses the attention map into 8 query-conditioning features:
-// peak, total mass, normalized entropy, centroid (x, y), spread, coverage and
-// peak-mass fraction.
-func attnStats(a []float64) []float64 {
-	var sum, mx float64
-	for _, v := range a {
-		sum += v
-		if v > mx {
-			mx = v
-		}
-	}
-	var ent float64
-	for _, v := range a {
-		if v > 1e-9 {
-			ent -= v * math.Log(v)
-		}
-	}
-	ent /= math.Log(float64(len(a)))
-	var cx, cy float64
-	for py := 0; py < attnGrid; py++ {
-		for px := 0; px < attnGrid; px++ {
-			v := a[py*attnGrid+px]
-			cx += v * float64(px)
-			cy += v * float64(py)
-		}
-	}
-	if sum > 0 {
-		cx /= sum
-		cy /= sum
-	}
-	var sp float64
-	for py := 0; py < attnGrid; py++ {
-		for px := 0; px < attnGrid; px++ {
-			v := a[py*attnGrid+px]
-			dx := float64(px) - cx
-			dy := float64(py) - cy
-			sp += v * (dx*dx + dy*dy)
-		}
-	}
-	if sum > 0 {
-		sp /= sum
-	}
-	var cov float64
-	for _, v := range a {
-		if v >= 0.5*mx {
-			cov++
-		}
-	}
-	cov /= float64(len(a))
-	peak := 0.0
-	if sum > 0 {
-		peak = mx / sum
-	}
-	return []float64{mx, sum, ent, cx / attnGrid, cy / attnGrid, sp, cov, peak}
 }
