@@ -29,6 +29,23 @@ similarity），模型自己去学"哪些描述子的哪个子带重要，如何
   `search . nn <weights>`（注意：权重与输入布局强绑定，旧 weights 不可混用）。
 - 回退：`git checkout exp/attn-color-backup`（改前完整快照，含旧 nn.go/nnfit.go）。
 
+### 0.1 实测结果（2026-08-13，训练集 `train_set_lean`：train_set 前 4000 查询，60 epoch / lr=0.002 / 46k 样本）
+
+```
+原 test_set（120 查询，同域）:
+  baseline adaptive : recall@1 = 88.3%
+  新 lean  (32.6k)  : recall@1 = 92.5%   （旧 attn+color+zproj ≈96.7%）
+iconfont 未见图标（354 查询，跨域）:
+  baseline adaptive : recall@1 = 77.4%
+  新 lean  (32.6k)  : recall@1 = 39.8%   （旧架构 ≈67.2%，基线 77.4%）
+```
+
+结论：learned-projection 架构在训练域内略优于手工融合、但明显落后旧注意力架构；
+**跨域泛化崩坏更严重**（39.8% << 旧 67.2% << 基线 77.4%）——投影器把相似度权重学死在了
+训练域（业务图标）的描述子分布上，颜色/细节被大幅削减后没有可迁移的兜底信号。
+下一步方向：训练数据混入更多样图标；减少 overfit（降 epoch/加正则）；或保留部分
+描述性信号（如归一化掩码或直方图距离）作为兜底 token。
+
 ## 1. 背景与基线
 
 - 检索流程：`search/main.go` → 从 `test_pngs/`（66 个 ref icon）建索引 →

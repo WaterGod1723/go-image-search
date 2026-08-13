@@ -32,6 +32,8 @@ segdump/
 
 # NN training fixtures (157MB, regenerable: go run ./gentest -n 4000 -seed 20260715 -out train_set)
 train_set/
+train_set_lean/
+iconfont_test/
 
 # Editor / IDE
 .vscode/

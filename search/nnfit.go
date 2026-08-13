@@ -202,11 +202,13 @@ type nnSample struct {
 	w float64
 }
 
-// nnQuery holds the per-query raw similarity blocks per ref so training epochs
-// never recompute them (they are cheap, but cached like the old features).
+// nnQuery holds a query's Feat and true-ref index. The raw similarity blocks
+// are NOT cached per ref — they are cheap elementwise mins, and materializing
+// 545-dim vectors for every (query, ref) would cost gigabytes on the 8000-query
+// train set. buildPairVec is called lazily for the selected samples only.
 type nnQuery struct {
+	q       *Feat
 	trueIdx int
-	pairs   [][]float64
 }
 
 // runTrain builds a labeled dataset from a gentest-generated directory, trains
@@ -281,14 +283,14 @@ func runTrain(root string, args []string) {
 		fatal(fmt.Errorf("no usable queries in %s", trainDir))
 	}
 
-	// Phase 1 (parallel): per-query raw similarity blocks against every
-	// reference. Only cheap elementwise ops; each query is independent.
+	// Phase 1 (parallel): just keep the queries' Feats (raw blocks are cheap,
+	// they are materialized lazily for the selected samples in phase 2).
 	start := time.Now()
 	queries := make([]nnQuery, len(prep))
 	parFor(len(prep), func(i int) {
-		queries[i] = buildNNQuery(prep[i].q, refs, prep[i].trueIdx)
+		queries[i] = buildNNQuery(prep[i].q, prep[i].trueIdx)
 	})
-	fmt.Printf("pair features: %.1fs\n", time.Since(start).Seconds())
+	fmt.Printf("prep queries: %.1fs\n", time.Since(start).Seconds())
 
 	// Phase 2 (serial): build samples. Per query: 1 positive (the true ref) +
 	// hard negatives (histogram/zernite-closest refs) + a few random negatives,
@@ -296,12 +298,12 @@ func runTrain(root string, args []string) {
 	var samples []nnSample
 	for i := range queries {
 		qu := &queries[i]
-		samples = append(samples, nnSample{x: nnVec(qu.pairs[qu.trueIdx]), y: 1, w: 1})
-		for _, j := range hardNegs(qu, i) {
-			samples = append(samples, nnSample{x: nnVec(qu.pairs[j]), y: 0, w: 1})
+		samples = append(samples, nnSample{x: nnVec(buildPairVec(qu.q, refs[qu.trueIdx])), y: 1, w: 1})
+		for _, j := range hardNegs(qu.q, refs, qu.trueIdx, i) {
+			samples = append(samples, nnSample{x: nnVec(buildPairVec(qu.q, refs[j])), y: 0, w: 1})
 		}
 	}
-	fmt.Printf("samples: %d\n", len(samples))
+	fmt.Printf("samples: %d (%.1fs)\n", len(samples), time.Since(start).Seconds())
 
 	// class-balanced BCE weights
 	nPos, nNeg := 0, 0
@@ -349,7 +351,7 @@ func runTrain(root string, args []string) {
 		}
 		if ep%4 == 0 || ep == epochs-1 {
 			t1 := time.Now()
-			ok := trainAt1(m, queries)
+			ok := trainAt1(m, queries, refs)
 			fmt.Printf("epoch %d/%d  loss=%.4f  train@1=%d/%d (%.1f%%)  [%.1fs]\n",
 				ep+1, epochs, loss/float64(len(samples)), ok, len(queries),
 				100*float64(ok)/float64(len(queries)), t1.Sub(t0).Seconds())
@@ -363,8 +365,8 @@ func runTrain(root string, args []string) {
 	fmt.Printf("weights saved to %s\n", weightsPath)
 }
 
-func buildNNQuery(q *Feat, refs []*Feat, trueIdx int) nnQuery {
-	return nnQuery{trueIdx: trueIdx, pairs: buildPairData(q, refs)}
+func buildNNQuery(q *Feat, trueIdx int) nnQuery {
+	return nnQuery{q: q, trueIdx: trueIdx}
 }
 
 // parFor runs fn over [0,n) across runtime.GOMAXPROCS workers.
@@ -397,13 +399,13 @@ func parFor(n int, fn func(i int)) {
 	wg.Wait()
 }
 
-func trainAt1(m *AttnNet, queries []nnQuery) int {
+func trainAt1(m *AttnNet, queries []nnQuery, refs []*Feat) int {
 	ok := 0
 	for i := range queries {
 		qu := &queries[i]
 		bestScore, bestIdx := -1.0, -1
-		for j := range qu.pairs {
-			if v := m.predict(nnVec(qu.pairs[j])); v > bestScore {
+		for j := range refs {
+			if v := m.predict(nnVec(buildPairVec(qu.q, refs[j]))); v > bestScore {
 				bestScore, bestIdx = v, j
 			}
 		}
@@ -423,24 +425,20 @@ func mathLog(x float64) float64 {
 
 // hardNegs returns negative ref indices for training. Negatives are chosen to
 // be confusable along color OR shape: the top refs by a hist+zern overlap
-// blend (recovered from the raw similarity blocks), plus a few random refs
-// (usually color-family outsiders), so the model learns both within-family
-// shape ties and cross-family rejection.
-func hardNegs(qu *nnQuery, seed int) []int {
-	zernOff, histOff := 0, 49 // zern block then hist block (see buildPairVec)
-	histLen := 288
+// blend, plus a few random refs (usually color-family outsiders), so the model
+// learns both within-family shape ties and cross-family rejection. Scoring is
+// on-the-fly (scalar per ref, no 545-dim block materialization).
+func hardNegs(q *Feat, refs []*Feat, trueIdx, seed int) []int {
 	type hd struct {
 		idx int
 		s   float64
 	}
-	var cands []hd
-	for j := range qu.pairs {
-		if j == qu.trueIdx {
+	cands := make([]hd, 0, len(refs)-1)
+	for j, r := range refs {
+		if j == trueIdx {
 			continue
 		}
-		h := pairSum(qu.pairs[j][histOff : histOff+histLen])
-		z := pairSum(qu.pairs[j][zernOff:histOff])
-		cands = append(cands, hd{idx: j, s: 0.5*h + 0.5*z})
+		cands = append(cands, hd{idx: j, s: refOverlap(q, r)})
 	}
 	sort.Slice(cands, func(a, b int) bool { return cands[a].s > cands[b].s })
 	sel := make([]int, 0, 16)
@@ -449,18 +447,41 @@ func hardNegs(qu *nnQuery, seed int) []int {
 	}
 	rng := rand.New(rand.NewSource(int64(seed)*7919 + 13))
 	for k := 0; k < 3; k++ {
-		sel = append(sel, rng.Intn(len(qu.pairs)))
+		sel = append(sel, rng.Intn(len(refs)))
 	}
 	seen := make(map[int]bool, len(sel))
 	out := make([]int, 0, len(sel))
 	for _, j := range sel {
-		if j == qu.trueIdx || seen[j] {
+		if j == trueIdx || seen[j] {
 			continue
 		}
 		seen[j] = true
 		out = append(out, j)
 	}
 	return out
+}
+
+// refOverlap is the color+shape confusability scalar used to select hard
+// negatives: half the HSV histogram intersection plus half the Zernike
+// per-mode overlap. No raw blocks are materialized.
+func refOverlap(q, r *Feat) float64 {
+	var h float64
+	for i := range q.Hist {
+		if q.Hist[i] < r.Hist[i] {
+			h += q.Hist[i]
+		} else {
+			h += r.Hist[i]
+		}
+	}
+	var z float64
+	for i := range q.Zern {
+		if q.Zern[i] < r.Zern[i] {
+			z += q.Zern[i]
+		} else {
+			z += r.Zern[i]
+		}
+	}
+	return 0.5*h + 0.5*z
 }
 
 // runSegDump renders the segmented sprite (green overlay on black) for every
