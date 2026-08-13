@@ -21,13 +21,12 @@ func buildRefIndex(root string) ([]*Feat, []string) {
 	return indexRefs(filepath.Join(root, "test_pngs"))
 }
 
-// buildPairData computes, for a query, the raw per-mode overlap vectors of
-// every reference. The raw blocks are concatenated in the exact order declared
-// by attnProjConfigs: [zern | hist | radial | angmag]. Each block is the
-// elementwise min (histogram-intersection style) of the two L2/L1-normalized
-// rotation-invariant descriptors — the raw signal the jointly-trained input
-// projectors compress into tokens, replacing the former hand-crafted
-// similarity scores.
+// buildPairData computes, for a query, the raw feature blocks of every
+// reference. The raw blocks are concatenated in the exact order declared by
+// attnProjConfigs: [zern | hist | radial | angmag], each carrying the
+// dual-view min-then-diff of the two L2/L1-normalized rotation-invariant
+// descriptors — the raw signal the jointly-trained input projectors compress
+// into tokens, replacing the former hand-crafted similarity scores.
 func buildPairData(q *Feat, refs []*Feat) [][]float64 {
 	out := make([][]float64, len(refs))
 	for i, r := range refs {
@@ -36,26 +35,34 @@ func buildPairData(q *Feat, refs []*Feat) [][]float64 {
 	return out
 }
 
-// buildPairVec returns the raw similarity blocks for one (query, ref) pair.
+// buildPairVec returns the raw feature blocks for one (query, ref) pair.
+// Per descriptor: [min(q,r) | |q-r|] — the overlap view says "how much both
+// have", the diff view says "who is missing what". Block layout (raw dims):
+// zern 2*49, hist 2*288, radial 2*16, angmag 2*192.
 func buildPairVec(q, r *Feat) []float64 {
 	out := make([]float64, 0, nnProjRawIn())
-	out = append(out, zernSim(q.Zern, r.Zern)...)          // len(zernModes)
-	out = append(out, elemMin(q.Hist, r.Hist)...)          // hBins*sBins*vBins
-	out = append(out, elemMin(q.Radial, r.Radial)...)      // nRing
-	out = append(out, elemMin(q.AngMag, r.AngMag)...)      // nRing*nFreq
+	out = append(out, overlapDiff(q.Zern, r.Zern)...)
+	out = append(out, overlapDiff(q.Hist, r.Hist)...)
+	out = append(out, overlapDiff(q.Radial, r.Radial)...)
+	out = append(out, overlapDiff(q.AngMag, r.AngMag)...)
 	return out
 }
 
-// elemMin is the elementwise min (intersection) of two non-negative,
-// normalized vectors; a per-mode overlap signal in [0,1].
-func elemMin(a, b []float64) []float64 {
-	out := make([]float64, len(a))
+// overlapDiff returns [min(a,b) | |a-b|] for each component of two
+// non-negative, normalized vectors: overlap in [0,1], diff in [0,1].
+func overlapDiff(a, b []float64) []float64 {
+	out := make([]float64, 0, 2*len(a))
 	for i := range a {
 		if a[i] < b[i] {
-			out[i] = a[i]
+			out = append(out, a[i])
 		} else {
-			out[i] = b[i]
+			out = append(out, b[i])
 		}
+		dv := a[i] - b[i]
+		if dv < 0 {
+			dv = -dv
+		}
+		out = append(out, dv)
 	}
 	return out
 }
@@ -96,14 +103,6 @@ func nnVec(pair []float64) []float64 {
 	x = append(x, make([]float64, nnPairDim())...)
 	x = append(x, pair...)
 	return x
-}
-
-// zernSim returns the per-mode min similarity of two L2-normalized Zernike
-// magnitude vectors (histogram-intersection style), preserving which subbands
-// match instead of collapsing to a single cosine. The result is the raw input
-// of the jointly-trained Zernike input projector.
-func zernSim(q, r []float64) []float64 {
-	return elemMin(q, r)
 }
 
 // rankNN ranks refs for query q by the attention-net's predicted relevance, in
@@ -196,10 +195,31 @@ func rankNNPri(q *Feat, refs []*Feat, predict func([]float64) float64) []int {
 	return out
 }
 
+// nnSample identifies one training instance by query/ref indices; the input
+// vector x is assembled lazily per epoch from q/r Feats into a shared buffer,
+// so 96k samples cost ~3MB instead of ~1GB of materialized vectors.
 type nnSample struct {
-	x []float64
-	y float64
-	w float64
+	qIdx int
+	rIdx int
+	y    float64
+	w    float64
+}
+
+// nnVecInto writes a fresh input vector for (q, r) into buf: zeroed projected-
+// token slots (patched by forward) followed by the raw similarity blocks.
+func nnVecInto(buf []float64, q, r *Feat) {
+	for i := range buf[:nnPairDim()] {
+		buf[i] = 0
+	}
+	raw := buf[nnPairDim():]
+	copy(raw[:len(q.Zern)*2], overlapDiff(q.Zern, r.Zern))
+	off := len(q.Zern) * 2
+	h := hBins * sBins * vBins
+	copy(raw[off:off+h*2], overlapDiff(q.Hist, r.Hist))
+	off += h * 2
+	copy(raw[off:off+nRing*2], overlapDiff(q.Radial, r.Radial))
+	off += nRing * 2
+	copy(raw[off:], overlapDiff(q.AngMag, r.AngMag))
 }
 
 // nnQuery holds a query's Feat and true-ref index. The raw similarity blocks
@@ -298,9 +318,9 @@ func runTrain(root string, args []string) {
 	var samples []nnSample
 	for i := range queries {
 		qu := &queries[i]
-		samples = append(samples, nnSample{x: nnVec(buildPairVec(qu.q, refs[qu.trueIdx])), y: 1, w: 1})
+		samples = append(samples, nnSample{qIdx: i, rIdx: qu.trueIdx, y: 1, w: 1})
 		for _, j := range hardNegs(qu.q, refs, qu.trueIdx, i) {
-			samples = append(samples, nnSample{x: nnVec(buildPairVec(qu.q, refs[j])), y: 0, w: 1})
+			samples = append(samples, nnSample{qIdx: i, rIdx: j, y: 0, w: 1})
 		}
 	}
 	fmt.Printf("samples: %d (%.1fs)\n", len(samples), time.Since(start).Seconds())
@@ -333,6 +353,7 @@ func runTrain(root string, args []string) {
 	for i := range order {
 		order[i] = i
 	}
+	xbuf := make([]float64, nnInput)
 	t0 := time.Now()
 	for ep := 0; ep < epochs; ep++ {
 		rng.Shuffle(len(order), func(i, j int) { order[i], order[j] = order[j], order[i] })
@@ -343,13 +364,15 @@ func runTrain(root string, args []string) {
 			n := end - off
 			for _, si := range order[off:end] {
 				s := samples[si]
-				p, _ := m.forward(s.x)
+				qu := &queries[s.qIdx]
+				nnVecInto(xbuf, qu.q, refs[s.rIdx])
+				p, _ := m.forward(xbuf)
 				loss += -s.w * (s.y*mathLog(p) + (1-s.y)*mathLog(1-p))
-				m.backprop(g, s.x, s.y, s.w)
+				m.backprop(g, xbuf, s.y, s.w)
 			}
 			adam.step(m, g, n, lr)
 		}
-		if ep%4 == 0 || ep == epochs-1 {
+		if ep%8 == 0 || ep == epochs-1 {
 			t1 := time.Now()
 			ok := trainAt1(m, queries, refs)
 			fmt.Printf("epoch %d/%d  loss=%.4f  train@1=%d/%d (%.1f%%)  [%.1fs]\n",
@@ -401,11 +424,13 @@ func parFor(n int, fn func(i int)) {
 
 func trainAt1(m *AttnNet, queries []nnQuery, refs []*Feat) int {
 	ok := 0
+	xbuf := make([]float64, nnInput)
 	for i := range queries {
 		qu := &queries[i]
 		bestScore, bestIdx := -1.0, -1
 		for j := range refs {
-			if v := m.predict(nnVec(buildPairVec(qu.q, refs[j]))); v > bestScore {
+			nnVecInto(xbuf, qu.q, refs[j])
+			if v := m.predict(xbuf); v > bestScore {
 				bestScore, bestIdx = v, j
 			}
 		}
@@ -590,11 +615,12 @@ func runRankReport(root string, args []string) {
 		sc := make([]float64, len(refs))
 		nn := make([]float64, len(refs))
 		pairs := buildPairData(q, refs)
-		// gap column: best-to-runner-up on the hist-block overlap (recovered
-		// from the raw similarity blocks), a cheap query-difficulty indicator.
+		// gap column: best-to-runner-up on the hist overlap (the min view of
+		// the raw hist block, which starts at 2*len(zernModes)), a cheap
+		// query-difficulty indicator.
 		b1, b2 := -1.0, -1.0
 		for j := range pairs {
-			v := pairSum(pairs[j][49 : 49+hBins*sBins*vBins])
+			v := pairSum(pairs[j][2*len(zernModes) : 2*len(zernModes)+hBins*sBins*vBins])
 			if v > b1 {
 				b2, b1 = b1, v
 			} else if v > b2 {

@@ -11,16 +11,18 @@ import (
 //
 // The hand-crafted per-pair similarity scores (hist/radial/angmag/polarShift/
 // polcol/roundTrip/zernike/mask), the gate/mono biases, the per-ring detail,
-// the sczl expert signals and the color projection histogram are all REMOVED.
+// the sczl expert signals and the color projection histogram are REMOVED.
 // Instead the model receives, for each (query, ref) pair, four raw per-mode
-// overlap vectors (elementwise min of the rotation-invariant descriptors):
+// DUAL-VIEW blocks of the rotation-invariant descriptors — per component both
+// the overlap `min(q,r)` (how much both have) and the directed difference
+// `|q-r|` (who is missing what):
 //   - Zernike magnitudes (len(zernModes) dims),
 //   - HSV histogram    (hBins*sBins*vBins dims),
 //   - radial density    (nRing dims),
 //   - angular FFT mags  (nRing*nFreq dims).
 //
-// Each raw block is compressed by a small jointly-trained projection MLP
-// (In -> Hid -> Out, ReLU hidden) into an 8-dim token; the query (used by the
+// Each block is compressed by a small jointly-trained projection MLP
+// (In -> Hid -> Out, ReLU hidden) into a 12-dim token; the query (used by the
 // attention head) is generated from those projected tokens via WQ, so the
 // network learns its own notion of "which descriptors, which sub-bands matter
 // for this pair" instead of receiving hand-tuned similarities. Attention
@@ -44,14 +46,14 @@ var nnInput = nnNewInputDim()
 
 // ---- joint-trainable input projectors ----
 //
-// InputProjector maps a raw per-pair similarity block (In dims, carried at the
+// InputProjector maps a raw per-pair feature block (In dims, carried at the
 // end of the input vector, invisible to the attention) to a compact token (Out
 // dims) that the attention consumes. It is a two-layer MLP (In -> Hid -> Out,
 // ReLU hidden) trained jointly with the network: backprop computes the loss
 // gradient wrt the projected token (WK/WV contributions, plus WQ since the
 // token lies in the query region) and flows it through the MLP. This lets
-// high-dimensional raw features (e.g. the 288-dim histogram intersection)
-// enter the fusion as small learned embeddings instead of hand-collapsed
+// high-dimensional raw features (e.g. the 576-dim histogram overlap+diff
+// block) enter the fusion as learned embeddings instead of hand-collapsed
 // scalar similarities. Add future jointly trained feature blocks by declaring
 // them in attnProjConfigs and appending their raw block to the input vector.
 
@@ -59,7 +61,7 @@ var nnInput = nnNewInputDim()
 const nnProjHid = 8
 
 // nnProjOut is the projected token width of every input projector.
-const nnProjOut = 8
+const nnProjOut = 12
 
 // InputProjector is a small jointly-trained projection MLP. All fields are
 // exported so gob persist/restore works.
@@ -73,14 +75,16 @@ type projCfg struct{ in, hid, out int }
 
 // attnProjConfigs declares the input projectors in layout order. Each entry
 // adds a projected token of Out dims to the attention layout and consumes In
-// carry dims appended at the very end of the input vector. The raw blocks
-// built by buildPairVec must be concatenated in exactly this order.
+// carry dims appended at the very end of the input vector. Every raw block
+// carries BOTH views (overlap min then directed diff), so In is 2x the
+// descriptor dims. The raw blocks built by buildPairVec must be concatenated
+// in exactly this order.
 func attnProjConfigs() []projCfg {
 	return []projCfg{
-		{in: len(zernModes), hid: nnProjHid, out: nnProjOut},      // zern  per-mode overlap
-		{in: hBins * sBins * vBins, hid: nnProjHid, out: nnProjOut}, // hist  per-bin intersection
-		{in: nRing, hid: nnProjHid, out: nnProjOut},                // radial per-ring overlap
-		{in: nRing * nFreq, hid: nnProjHid, out: nnProjOut},        // angmag per-mode overlap
+		{in: 2 * len(zernModes), hid: nnProjHid, out: nnProjOut},         // zern   min+diff
+		{in: 2 * hBins * sBins * vBins, hid: nnProjHid, out: nnProjOut},  // hist   min+diff
+		{in: 2 * nRing, hid: nnProjHid, out: nnProjOut},                  // radial min+diff
+		{in: 2 * nRing * nFreq, hid: nnProjHid, out: nnProjOut},          // angmag min+diff
 	}
 }
 
@@ -113,10 +117,10 @@ func nnNewInputDim() int {
 // x = [token slots (patched by the projectors in forward) | raw carry blocks].
 // Tokens:
 //
-//	0. zern   — projected Zernike per-mode overlap (nnProjOut)
-//	1. hist   — projected HSV per-bin intersection (nnProjOut)
-//	2. radial — projected per-ring overlap (nnProjOut)
-//	3. angmag — projected angular-FFT per-mode overlap (nnProjOut)
+//	0. zern   — projected Zernike min+diff (nnProjOut)
+//	1. hist   — projected HSV min+diff (nnProjOut)
+//	2. radial — projected per-ring min+diff (nnProjOut)
+//	3. angmag — projected angular-FFT min+diff (nnProjOut)
 //
 // The query (used by the attention head) is generated from the first
 // nnPairDim() dims (the projected token slots) via WQ. The raw carry blocks
