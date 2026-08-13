@@ -34,6 +34,7 @@ segdump/
 train_set/
 train_set_lean/
 iconfont_test/
+mixed/
 
 # Editor / IDE
 .vscode/

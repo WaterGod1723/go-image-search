@@ -24,16 +24,19 @@ import (
 )
 
 var (
-	srcDir = flag.String("src", "test_pngs", "directory of source icons")
-	outDir = flag.String("out", "test_set", "output directory for samples")
-	count  = flag.Int("n", 120, "number of samples to generate")
-	seed   = flag.Int64("seed", 0, "random seed (0 = time based)")
-	minS   = flag.Float64("min-canvas", 320, "canvas side lower bound in px")
-	maxS   = flag.Float64("max-canvas", 560, "canvas side upper bound in px")
-	gl     = flag.Float64("sprite-lo", 0.35, "sprite side fraction of canvas side (min)")
-	gh     = flag.Float64("sprite-hi", 0.85, "sprite side fraction of canvas side (max)")
-	allSd  = flag.Bool("all-sides", false, "put text on every side (default: random subset)")
-	noRot  = flag.Bool("norot", false, "disable sprite rotation (debug: isolate rotation interference)")
+	srcDir     = flag.String("src", "test_pngs", "directory of source icons")
+	outDir     = flag.String("out", "test_set", "output directory for samples")
+	count      = flag.Int("n", 120, "number of samples to generate")
+	seed       = flag.Int64("seed", 0, "random seed (0 = time based)")
+	minS       = flag.Float64("min-canvas", 320, "canvas side lower bound in px")
+	maxS       = flag.Float64("max-canvas", 560, "canvas side upper bound in px")
+	gl         = flag.Float64("sprite-lo", 0.35, "sprite side fraction of canvas side (min)")
+	gh         = flag.Float64("sprite-hi", 0.85, "sprite side fraction of canvas side (max)")
+	allSd      = flag.Bool("all-sides", false, "put text on every side (default: random subset)")
+	noRot      = flag.Bool("norot", false, "disable sprite rotation (debug: isolate rotation interference)")
+	augRefsDir = flag.String("augrefs", "", "if set, synthesize decorated reference icons into this dir instead of samples")
+	augPer     = flag.Int("aug-per-src", 3, "decorated reference variants per source icon")
+	augSeed    = flag.Int64("augseed", 0, "random seed for reference augmentation (0 = time based)")
 )
 
 // Sample is the ground-truth record for a generated image.
@@ -59,6 +62,19 @@ func main() {
 		rngSrc = *seed
 	}
 	rng := rand.New(rand.NewSource(rngSrc))
+	if *augRefsDir != "" {
+		lib, err := loadFont()
+		if err != nil {
+			log.Fatal(err)
+		}
+		arng := rng
+		if *augSeed != 0 {
+			arng = rand.New(rand.NewSource(*augSeed))
+		}
+		fmt.Printf("augmenting refs from %q -> %q perSrc=%d\n", *srcDir, *augRefsDir, *augPer)
+		runAugRefs(arng, lib, *srcDir, *augRefsDir, *augPer)
+		return
+	}
 	fmt.Printf("generating %d samples from %q, seed=%d\n", *count, *srcDir, rngSrc)
 
 	if err := os.MkdirAll(*outDir, 0o755); err != nil {
