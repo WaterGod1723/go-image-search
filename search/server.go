@@ -440,21 +440,19 @@ func (s *server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := buildFeat(px)
-	qd := sczl.Extract(img)
 	s.mu.RLock()
 	refs := make([]*Feat, len(s.entries))
 	for i := range s.entries {
 		refs[i] = s.entries[i].Feat
 	}
 	nn := s.nn
-	sczlIx := s.sczlIx
 	s.mu.RUnlock()
 
 	var ranked []int
 	if nn != nil {
-		// neural ranker: trained attention net fusing our features + the sczl expert,
-		// with shape-context shortlist refinement.
-		ranked = rankNN(q, refs, nn, sczlIx, qd)
+		// neural ranker: trained attention net over the learned similarity
+		// projections, with optional shape-context shortlist refinement.
+		ranked = rankNN(q, refs, nn)
 	} else {
 		ranked = compositeAdaptive(q, refs)
 	}

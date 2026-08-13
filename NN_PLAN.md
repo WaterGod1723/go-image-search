@@ -4,6 +4,31 @@
 > 提升以图搜图 recall@1。本文档记录方案、实现位置、命令与当前进度，
 > 供上下文压缩后恢复记忆使用。
 
+## 0. 最新迭代：精简架构（分支 `exp/attn-lean-proj`，参数 100k→32k）
+
+大砍手工相似度特征，改为"原始逐模式相似度向量 + 联合训练投影器"（learned
+similarity），模型自己去学"哪些描述子的哪个子带重要，如何比较配对"。
+
+- **删除的输入**：8 个基础相似度（`histSim/cosSim(Radial/AngMag)/polarShift/
+  polarCol/roundTrip/cosSim(Zern)/maskScore`）、`gate`/`mono` 偏置、
+  16 个 per-ring 形状细节、sczl 专家信号、查询级 `best`/`gap` 统计、
+  192 维颜色投影直方图。
+- **新增的输入**（每对 query↔ref，全部旋转不变原始描述子的逐元素交集 `min`）：
+  1. Zernike 幅值逐模式重叠（49 维）
+  2. HSV 直方图逐 bin 交集（288 维）
+  3. 径向密度逐环重叠（16 维）
+  4. 角向 FFT 幅值逐模式重叠（192 维）
+- 每个原始块过一个小 MLP 投影器（`In→8(ReLU)→8`，联合训练）压缩成 8 维 token；
+  注意力网络只吃 4 个 8 维 token（`dims=[8,8,8,8]`），query = WQ·[投影 token]。
+- 输入向量 `nnInput=577`：前 32 维为 token 槽位（forward 用投影结果回填），
+  尾部 545 维为原始块 carry（对注意力不可见，仅用于投影器反传）。
+- 实现位置：`search/nn.go`（`attnProjConfigs`/`attnLayout`/`forward` 回填）、
+  `search/nnfit.go`（`buildPairVec`/`elemMin`/`nnVec`，sczl 与 mask 旋转扫描全部移除）。
+- 参数：注意力 ≈27.9k + 4×投影器 ≈4.7k = **≈32.6k**（旧版 ≈100k，**≈-68%**）。
+- 训练/评测命令不变：`search . train <dir> <weights> [epochs] [lr]`、
+  `search . nn <weights>`（注意：权重与输入布局强绑定，旧 weights 不可混用）。
+- 回退：`git checkout exp/attn-color-backup`（改前完整快照，含旧 nn.go/nnfit.go）。
+
 ## 1. 背景与基线
 
 - 检索流程：`search/main.go` → 从 `test_pngs/`（66 个 ref icon）建索引 →

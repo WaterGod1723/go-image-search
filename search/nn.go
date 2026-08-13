@@ -7,26 +7,28 @@ import (
 	"os"
 )
 
-// ---- learning-to-rank attention fusion ----
+// ---- learning-to-rank attention fusion over learned similarity tokens ----
 //
-// Instead of hand-tuning (or per-query heuristically adapting) the fusion
-// weights of the hand-crafted similarities, a small attention network is
-// trained to predict, for a (query, ref) pair, how likely the ref is the true
-// source of the query. The input is the per-pair similarities (the 7 from
-// scores() plus the rotation-aligned mask score) augmented with per-query
-// distribution statistics (best / second-best gap per feature), so the model
-// can condition on query difficulty the way compositeAdaptive does by hand.
+// The hand-crafted per-pair similarity scores (hist/radial/angmag/polarShift/
+// polcol/roundTrip/zernike/mask), the gate/mono biases, the per-ring detail,
+// the sczl expert signals and the color projection histogram are all REMOVED.
+// Instead the model receives, for each (query, ref) pair, four raw per-mode
+// overlap vectors (elementwise min of the rotation-invariant descriptors):
+//   - Zernike magnitudes (len(zernModes) dims),
+//   - HSV histogram    (hBins*sBins*vBins dims),
+//   - radial density    (nRing dims),
+//   - angular FFT mags  (nRing*nFreq dims).
 //
-// The fusion is a single-head attention over semantically-grouped feature
-// tokens:
-//   - the pair block is split by feature family — base similarity scores,
-//     gate/mono bias, per-ring shape detail, and the sczl expert sub-signals —
-//     plus the two query-statistic blocks (best / gap), giving 6 tokens;
-//   - the query is data-dependent: it is generated from the base-scores token
-//     via WQ, so the attention weights adapt to each (query, ref) sample;
-//   - each token has its own key/value projection (no weight sharing);
-//   - the attended context passes through an FFN with a residual connection,
-//     then a linear head to a sigmoid output.
+// Each raw block is compressed by a small jointly-trained projection MLP
+// (In -> Hid -> Out, ReLU hidden) into an 8-dim token; the query (used by the
+// attention head) is generated from those projected tokens via WQ, so the
+// network learns its own notion of "which descriptors, which sub-bands matter
+// for this pair" instead of receiving hand-tuned similarities. Attention
+// weights adapt per sample; tokens have per-token key/value projections (no
+// weight sharing); the attended context passes a residual FFN then a linear
+// head to a sigmoid output. The projection MLPs are trained joint with the
+// network (the raw blocks are carried at the end of the input vector,
+// invisible to attention, and patched into their token slots by forward).
 
 const (
 	// attnKey is the key/value (and query) dimension of the attention head.
@@ -35,42 +37,29 @@ const (
 	nFFN = 96
 )
 
-// nnInput is the per-pair feature count: pair features + 2*query statistics
-// (best / runner-up gap per feature) + the query's 32x32 color grid. It is a
-// var (not a const) because the feature set is chosen at runtime via env flags
-// (SCZLSPLIT); the network weight arrays are sized from it at construction.
+// nnInput is the per-pair input width: the projected-token slots
+// (nnPairDim) plus the raw blocks carried for the input projectors. It is a
+// var (not a const) because the descriptor dims are fixed at package init.
 var nnInput = nnNewInputDim()
-
-// nnBaseScores is the fixed leading part of the pair block: the 8 base
-// similarity scores.
-const nnBaseScores = 8
-
-// nnBiasDims is the gate+mono inductive-bias token width.
-const nnBiasDims = 2
-
-// nnColorDims is the width of the query's color projection histogram block
-// (32 rows + 32 cols, each mean RGB).
-const nnColorDims = 32 * 3 * 2
 
 // ---- joint-trainable input projectors ----
 //
-// InputProjector maps a raw per-ref feature block (In dims, carried at the end
-// of the input vector, invisible to the attention) to a compact token (Out
+// InputProjector maps a raw per-pair similarity block (In dims, carried at the
+// end of the input vector, invisible to the attention) to a compact token (Out
 // dims) that the attention consumes. It is a two-layer MLP (In -> Hid -> Out,
 // ReLU hidden) trained jointly with the network: backprop computes the loss
-// gradient wrt the projected token (WK/WV contributions, plus WQ when the token
-// lies in the query region) and flows it through the MLP. This lets a
-// high-dimensional raw feature (e.g. the 49-dim Zernike per-mode similarity)
-// enter the fusion as a small learned embedding instead of bloating the pair
-// block. Add future jointly trained feature blocks by declaring them in
-// attnProjConfigs and appending their raw block to the input vector.
+// gradient wrt the projected token (WK/WV contributions, plus WQ since the
+// token lies in the query region) and flows it through the MLP. This lets
+// high-dimensional raw features (e.g. the 288-dim histogram intersection)
+// enter the fusion as small learned embeddings instead of hand-collapsed
+// scalar similarities. Add future jointly trained feature blocks by declaring
+// them in attnProjConfigs and appending their raw block to the input vector.
 
 // nnProjHid is the hidden width of every input projector.
-const nnProjHid = 16
+const nnProjHid = 8
 
-// nnZernOut is the projected width of the raw Zernike per-mode similarity block
-// (its raw input is len(zernModes) dims).
-const nnZernOut = 8
+// nnProjOut is the projected token width of every input projector.
+const nnProjOut = 8
 
 // InputProjector is a small jointly-trained projection MLP. All fields are
 // exported so gob persist/restore works.
@@ -84,9 +73,15 @@ type projCfg struct{ in, hid, out int }
 
 // attnProjConfigs declares the input projectors in layout order. Each entry
 // adds a projected token of Out dims to the attention layout and consumes In
-// carry dims appended at the very end of the input vector.
+// carry dims appended at the very end of the input vector. The raw blocks
+// built by buildPairVec must be concatenated in exactly this order.
 func attnProjConfigs() []projCfg {
-	return []projCfg{{in: len(zernModes), hid: nnProjHid, out: nnZernOut}}
+	return []projCfg{
+		{in: len(zernModes), hid: nnProjHid, out: nnProjOut},      // zern  per-mode overlap
+		{in: hBins * sBins * vBins, hid: nnProjHid, out: nnProjOut}, // hist  per-bin intersection
+		{in: nRing, hid: nnProjHid, out: nnProjOut},                // radial per-ring overlap
+		{in: nRing * nFreq, hid: nnProjHid, out: nnProjOut},        // angmag per-mode overlap
+	}
 }
 
 // nnProjRawIn returns the total carry dims consumed by all input projectors.
@@ -98,63 +93,38 @@ func nnProjRawIn() int {
 	return n
 }
 
-// sczlDim is the number of sczl sub-signals per ref in the current feature
-// layout.
-func sczlDim() int {
-	if nnSczlSplit() {
-		return 6
-	}
-	return 1
-}
-
-// nnPairDim returns the feature count of the pair block: 8 base pair features
-// + 2 (gate/mono) + 16 per-ring polar-shape detail + sczl (1 fused, or 6
-// sub-signals with SCZLSPLIT=1) + the projected input-module tokens.
+// nnPairDim returns the projected-token block width: the sum of every input
+// projector's Out dims.
 func nnPairDim() int {
-	d := nnBaseScores + nnBiasDims + 16 + sczlDim()
+	d := 0
 	for _, c := range attnProjConfigs() {
 		d += c.out
 	}
 	return d
 }
 
-// nnNewInputDim computes the total input width: pair + best + gap (each pf)
-// plus the query's color projection block plus the raw carry blocks of every
-// input projector.
+// nnNewInputDim computes the total input width: the projected-token slots plus
+// the raw carry blocks of every input projector.
 func nnNewInputDim() int {
-	return nnPairDim() + 2*nnPairDim() + nnColorDims + nnProjRawIn()
-}
-
-// nnSczlSplit reports whether the split sczl sub-signal feature layout is
-// active. It must match the flag used at training time.
-func nnSczlSplit() bool {
-	return os.Getenv("SCZLSPLIT") == "1"
+	return nnPairDim() + nnProjRawIn()
 }
 
 // attnLayout describes the semantic token split of the input vector x.
-// x = [pair | best | gap | color], pair = [base scores 8 | gate/mono 2 |
-// expert agreement 2 | ring detail 16 | sczl sczlDim()]. Tokens:
+// x = [token slots (patched by the projectors in forward) | raw carry blocks].
+// Tokens:
 //
-//	0. base   — the 8 base similarity scores
-//	1. bias   — gate + mono inductive biases
-//	2. detail — 16 per-ring polar-shape-detail cosines
-//	3. sczl   — the sczl color-agnostic expert sub-signals
-//	4. zern   — the projected Zernike per-mode similarity token (nnZernOut)
-//	5. best   — per-query best statistics (dim pf)
-//	6. gap    — per-query best-to-runner-up gap statistics (dim pf)
-//	7. color  — the query's color projection histogram (nnColorDims = 192)
+//	0. zern   — projected Zernike per-mode overlap (nnProjOut)
+//	1. hist   — projected HSV per-bin intersection (nnProjOut)
+//	2. radial — projected per-ring overlap (nnProjOut)
+//	3. angmag — projected angular-FFT per-mode overlap (nnProjOut)
 //
-// The query (used by the attention head) is generated from the pair + best +
-// gap region (3*pf dims), so the color token only feeds the key and value
-// projections. Raw input-projector blocks are carried after the color token
-// and projected into their tokens by forward.
+// The query (used by the attention head) is generated from the first
+// nnPairDim() dims (the projected token slots) via WQ. The raw carry blocks
+// are invisible to the attention; forward projects them into the slots.
 func attnLayout() (dims, offs []int) {
-	pf := nnPairDim()
-	dims = []int{nnBaseScores, nnBiasDims, 16, sczlDim()}
 	for _, c := range attnProjConfigs() {
 		dims = append(dims, c.out)
 	}
-	dims = append(dims, pf, pf, nnColorDims)
 	offs = make([]int, len(dims))
 	for i := 1; i < len(dims); i++ {
 		offs[i] = offs[i-1] + dims[i-1]
@@ -165,8 +135,8 @@ func attnLayout() (dims, offs []int) {
 // AttnNet is a single-head attention fusion network over semantically-grouped
 // feature tokens with a sigmoid relevance output in [0,1].
 //
-//	tokens t = 0..7 as in attnLayout(); base = token 0
-//	q    = WQ·x[0:3*pf]                                  (pair+best+gap region)
+//	tokens t = 0..3 (projected similarity tokens, see attnLayout())
+//	q    = WQ·x[0:PF]                                   (projected tokens region)
 //	k_t  = WK[block_t]·block_t,  v_t = WV[block_t]·block_t
 //	alpha_t = softmax(q·k_t / sqrt(attnKey))
 //	ctx     = sum_t alpha_t · v_t
@@ -177,11 +147,11 @@ func attnLayout() (dims, offs []int) {
 // token t at offset attnKey*sum_{s<t} dims[s]. All fields are exported so gob
 // persist/restore works.
 type AttnNet struct {
-	PF   int   // query projection width (3*nnPairDim)
+	PF   int   // query projection width (nnPairDim)
 	Dims []int // per-token input dims (attnLayout)
 	Offs []int // per-token offset in x (attnLayout)
 
-	WQ []float64 // query projection from the pair+best+gap region: attnKey x PF
+	WQ []float64 // query projection from the projected-token region: attnKey x PF
 
 	WK []float64 // key projections, flattened: attnKey x dims[t] per token
 	WV []float64 // value projections, flattened: attnKey x dims[t] per token
@@ -198,7 +168,7 @@ type AttnNet struct {
 func newAttnNet(seed int64) *AttnNet {
 	rng := rand.New(rand.NewSource(seed))
 	dims, offs := attnLayout()
-	qd := 3 * nnPairDim()
+	qd := nnPairDim()
 	m := &AttnNet{
 		PF:   qd,
 		Dims: dims,
@@ -462,7 +432,7 @@ func (m *AttnNet) valid() bool {
 		m.W1 == nil || m.B1 == nil || m.W2 == nil || m.B2 == nil {
 		return false
 	}
-	if m.PF != 3*nnPairDim() {
+	if m.PF != nnPairDim() {
 		return false
 	}
 	dims, _ := attnLayout()
@@ -737,7 +707,7 @@ func (m *AttnNet) backprop(g *grads, x []float64, y float64, w float64) {
 				dzd[i] += dk*krow[i] + gv*vrow[i]
 			}
 		}
-		if off+d <= 3*nnPairDim() {
+		if off+d <= nnPairDim() {
 			for i := 0; i < d; i++ {
 				var s float64
 				for j := 0; j < attnKey; j++ {
