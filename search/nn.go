@@ -52,6 +52,52 @@ const nnBiasDims = 2
 // (32 rows + 32 cols, each mean RGB).
 const nnColorDims = 32 * 3 * 2
 
+// ---- joint-trainable input projectors ----
+//
+// InputProjector maps a raw per-ref feature block (In dims, carried at the end
+// of the input vector, invisible to the attention) to a compact token (Out
+// dims) that the attention consumes. It is a two-layer MLP (In -> Hid -> Out,
+// ReLU hidden) trained jointly with the network: backprop computes the loss
+// gradient wrt the projected token (WK/WV contributions, plus WQ when the token
+// lies in the query region) and flows it through the MLP. This lets a
+// high-dimensional raw feature (e.g. the 49-dim Zernike per-mode similarity)
+// enter the fusion as a small learned embedding instead of bloating the pair
+// block. Add future jointly trained feature blocks by declaring them in
+// attnProjConfigs and appending their raw block to the input vector.
+
+// nnProjHid is the hidden width of every input projector.
+const nnProjHid = 16
+
+// nnZernOut is the projected width of the raw Zernike per-mode similarity block
+// (its raw input is len(zernModes) dims).
+const nnZernOut = 8
+
+// InputProjector is a small jointly-trained projection MLP. All fields are
+// exported so gob persist/restore works.
+type InputProjector struct {
+	In, Hid, Out int
+	W1, B1       []float64 // Hid x In
+	W2, B2       []float64 // Out x Hid
+}
+
+type projCfg struct{ in, hid, out int }
+
+// attnProjConfigs declares the input projectors in layout order. Each entry
+// adds a projected token of Out dims to the attention layout and consumes In
+// carry dims appended at the very end of the input vector.
+func attnProjConfigs() []projCfg {
+	return []projCfg{{in: len(zernModes), hid: nnProjHid, out: nnZernOut}}
+}
+
+// nnProjRawIn returns the total carry dims consumed by all input projectors.
+func nnProjRawIn() int {
+	n := 0
+	for _, c := range attnProjConfigs() {
+		n += c.in
+	}
+	return n
+}
+
 // sczlDim is the number of sczl sub-signals per ref in the current feature
 // layout.
 func sczlDim() int {
@@ -63,15 +109,20 @@ func sczlDim() int {
 
 // nnPairDim returns the feature count of the pair block: 8 base pair features
 // + 2 (gate/mono) + 16 per-ring polar-shape detail + sczl (1 fused, or 6
-// sub-signals with SCZLSPLIT=1).
+// sub-signals with SCZLSPLIT=1) + the projected input-module tokens.
 func nnPairDim() int {
-	return nnBaseScores + nnBiasDims + 16 + sczlDim()
+	d := nnBaseScores + nnBiasDims + 16 + sczlDim()
+	for _, c := range attnProjConfigs() {
+		d += c.out
+	}
+	return d
 }
 
 // nnNewInputDim computes the total input width: pair + best + gap (each pf)
-// plus the query's color projection block (nnColorDims).
+// plus the query's color projection block plus the raw carry blocks of every
+// input projector.
 func nnNewInputDim() int {
-	return nnPairDim() + 2*nnPairDim() + nnColorDims
+	return nnPairDim() + 2*nnPairDim() + nnColorDims + nnProjRawIn()
 }
 
 // nnSczlSplit reports whether the split sczl sub-signal feature layout is
@@ -82,22 +133,28 @@ func nnSczlSplit() bool {
 
 // attnLayout describes the semantic token split of the input vector x.
 // x = [pair | best | gap | color], pair = [base scores 8 | gate/mono 2 |
-// ring detail 16 | sczl sczlDim()]. Tokens:
+// expert agreement 2 | ring detail 16 | sczl sczlDim()]. Tokens:
 //
 //	0. base   — the 8 base similarity scores
 //	1. bias   — gate + mono inductive biases
 //	2. detail — 16 per-ring polar-shape-detail cosines
 //	3. sczl   — the sczl color-agnostic expert sub-signals
-//	4. best   — per-query best statistics (dim pf)
-//	5. gap    — per-query best-to-runner-up gap statistics (dim pf)
-//	6. color  — the query's color projection histogram (nnColorDims = 192)
+//	4. zern   — the projected Zernike per-mode similarity token (nnZernOut)
+//	5. best   — per-query best statistics (dim pf)
+//	6. gap    — per-query best-to-runner-up gap statistics (dim pf)
+//	7. color  — the query's color projection histogram (nnColorDims = 192)
 //
 // The query (used by the attention head) is generated from the pair + best +
 // gap region (3*pf dims), so the color token only feeds the key and value
-// projections.
+// projections. Raw input-projector blocks are carried after the color token
+// and projected into their tokens by forward.
 func attnLayout() (dims, offs []int) {
 	pf := nnPairDim()
-	dims = []int{nnBaseScores, nnBiasDims, 16, sczlDim(), pf, pf, nnColorDims}
+	dims = []int{nnBaseScores, nnBiasDims, 16, sczlDim()}
+	for _, c := range attnProjConfigs() {
+		dims = append(dims, c.out)
+	}
+	dims = append(dims, pf, pf, nnColorDims)
 	offs = make([]int, len(dims))
 	for i := 1; i < len(dims); i++ {
 		offs[i] = offs[i-1] + dims[i-1]
@@ -134,6 +191,8 @@ type AttnNet struct {
 
 	WO []float64 // output head: attnKey
 	BO []float64 // output bias: 1
+
+	Proj []*InputProjector // joint-trainable input projectors (nil-safe)
 }
 
 func newAttnNet(seed int64) *AttnNet {
@@ -158,7 +217,74 @@ func newAttnNet(seed int64) *AttnNet {
 	}
 	m.WK = randVec(rng, wSize, 0.6)
 	m.WV = randVec(rng, wSize, 0.6)
+	for _, c := range attnProjConfigs() {
+		m.Proj = append(m.Proj, newInputProjector(rng, c.in, c.hid, c.out))
+	}
 	return m
+}
+
+func newInputProjector(rng *rand.Rand, in, hid, out int) *InputProjector {
+	return &InputProjector{
+		In: in, Hid: hid, Out: out,
+		W1: randVec(rng, hid*in, 0.3),
+		B1: make([]float64, hid),
+		W2: randVec(rng, out*hid, 0.3),
+		B2: make([]float64, out),
+	}
+}
+
+// apply runs the projector over a raw block and returns the hidden activations
+// (needed by backward) and the projected token.
+func (p *InputProjector) apply(in []float64) (h, out []float64) {
+	h = make([]float64, p.Hid)
+	for j := 0; j < p.Hid; j++ {
+		v := p.B1[j]
+		row := p.W1[j*p.In : (j+1)*p.In]
+		for i := 0; i < p.In; i++ {
+			v += row[i] * in[i]
+		}
+		h[j] = relu(v)
+	}
+	out = make([]float64, p.Out)
+	for j := 0; j < p.Out; j++ {
+		v := p.B2[j]
+		row := p.W2[j*p.Hid : (j+1)*p.Hid]
+		for i := 0; i < p.Hid; i++ {
+			v += row[i] * h[i]
+		}
+		out[j] = v
+	}
+	return h, out
+}
+
+// backward accumulates the projector's weight gradients given the forward
+// hidden activations h, raw input in, and the loss gradient dz wrt its output.
+func (p *InputProjector) backward(g *projGrad, h, in, dz []float64) {
+	// z = W2·h + B2
+	for j := 0; j < p.Out; j++ {
+		g.B2[j] += dz[j]
+		g2row := g.W2[j*p.Hid : (j+1)*p.Hid]
+		for i := 0; i < p.Hid; i++ {
+			g2row[i] += dz[j] * h[i]
+		}
+	}
+	// h = relu(W1·in + B1)
+	dh := make([]float64, p.Hid)
+	for i := 0; i < p.Hid; i++ {
+		if h[i] <= 0 {
+			continue
+		}
+		for j := 0; j < p.Out; j++ {
+			dh[i] += dz[j] * p.W2[j*p.Hid+i]
+		}
+	}
+	for i := 0; i < p.Hid; i++ {
+		g.B1[i] += dh[i]
+		g1row := g.W1[i*p.In : (i+1)*p.In]
+		for k := 0; k < p.In; k++ {
+			g1row[k] += dh[i] * in[k]
+		}
+	}
 }
 
 func randVec(rng *rand.Rand, n int, scale float64) []float64 {
@@ -202,14 +328,17 @@ func softmax(v []float64) []float64 {
 // attnActs holds the intermediate activations of a forward pass, needed for
 // backprop.
 type attnActs struct {
-	q     []float64   // attnKey
-	keys  [][]float64 // nTok x attnKey
-	vals  [][]float64 // nTok x attnKey
-	alpha []float64   // nTok
-	ctx   []float64   // attnKey
-	h     []float64   // nFFN (ReLU activations)
-	ffn   []float64   // attnKey
-	ctx2  []float64   // attnKey (post-residual)
+	xeff  []float64    // input with projected tokens patched in
+	q     []float64    // attnKey
+	keys  [][]float64  // nTok x attnKey
+	vals  [][]float64  // nTok x attnKey
+	alpha []float64    // nTok
+	ctx   []float64    // attnKey
+	h     []float64    // nFFN (ReLU activations)
+	ffn   []float64    // attnKey
+	ctx2  []float64    // attnKey (post-residual)
+	pin   [][]float64  // per-projector raw input blocks
+	ph    [][]float64  // per-projector hidden activations
 }
 
 // forward runs the network and returns the output probability plus the
@@ -219,6 +348,25 @@ func (m *AttnNet) forward(x []float64) (float64, *attnActs) {
 	scale := 1 / math.Sqrt(float64(attnKey))
 	nT := len(m.Dims)
 
+	// Patch the projected tokens: replace each projector's token slot with the
+	// MLP output over its raw carry block.
+	a.xeff = x
+	if len(m.Proj) > 0 {
+		a.xeff = make([]float64, len(x))
+		copy(a.xeff, x)
+		rawOff := len(x) - nnProjRawIn()
+		for pi, p := range m.Proj {
+			tokIdx := len(m.Dims) - len(m.Proj) + pi
+			tokOff := m.Offs[tokIdx]
+			in := x[rawOff : rawOff+p.In]
+			h, z := p.apply(in)
+			copy(a.xeff[tokOff:tokOff+p.Out], z)
+			a.pin = append(a.pin, in)
+			a.ph = append(a.ph, h)
+			rawOff += p.In
+		}
+	}
+
 	// data-dependent query from the full pair block
 	a.q = make([]float64, attnKey)
 	pf := m.PF
@@ -226,7 +374,7 @@ func (m *AttnNet) forward(x []float64) (float64, *attnActs) {
 		row := m.WQ[j*pf : (j+1)*pf]
 		var v float64
 		for i := 0; i < pf; i++ {
-			v += row[i] * x[i]
+			v += row[i] * a.xeff[i]
 		}
 		a.q[j] = v
 	}
@@ -238,7 +386,7 @@ func (m *AttnNet) forward(x []float64) (float64, *attnActs) {
 	wOff := 0
 	for t := 0; t < nT; t++ {
 		d := m.Dims[t]
-		tok := x[m.Offs[t] : m.Offs[t]+d]
+		tok := a.xeff[m.Offs[t] : m.Offs[t]+d]
 		k := make([]float64, attnKey)
 		v := make([]float64, attnKey)
 		for j := 0; j < attnKey; j++ {
@@ -332,7 +480,27 @@ func (m *AttnNet) valid() bool {
 		len(m.WQ) == attnKey*m.PF &&
 		len(m.W1) == nFFN*attnKey && len(m.B1) == nFFN &&
 		len(m.W2) == attnKey*nFFN && len(m.B2) == attnKey &&
-		len(m.WO) == attnKey && len(m.BO) == 1
+		len(m.WO) == attnKey && len(m.BO) == 1 &&
+		validProjectors(m)
+}
+
+// validProjectors checks the input-projector shapes against attnProjConfigs.
+func validProjectors(m *AttnNet) bool {
+	cfgs := attnProjConfigs()
+	if len(m.Proj) != len(cfgs) {
+		return false
+	}
+	for i, p := range m.Proj {
+		c := cfgs[i]
+		if p == nil || p.In != c.in || p.Hid != c.hid || p.Out != c.out {
+			return false
+		}
+		if len(p.W1) != c.hid*c.in || len(p.B1) != c.hid ||
+			len(p.W2) != c.out*c.hid || len(p.B2) != c.out {
+			return false
+		}
+	}
+	return true
 }
 
 // save writes the weights with gob; loadAttnNet reads them back.
@@ -360,6 +528,11 @@ func loadAttnNet(path string) (*AttnNet, error) {
 
 // ---- training (Adam) ----
 
+type adamProj struct {
+	mW1, vW1, mB1, vB1 []float64
+	mW2, vW2, mB2, vB2 []float64
+}
+
 type adamState struct {
 	mWQ, vWQ []float64
 	mWK, vWK []float64
@@ -370,11 +543,12 @@ type adamState struct {
 	mB2, vB2 []float64
 	mWO, vWO []float64
 	mBO, vBO []float64
+	Proj     []*adamProj
 	t        int
 }
 
 func newAdam(m *AttnNet) *adamState {
-	return &adamState{
+	a := &adamState{
 		mWQ: make([]float64, len(m.WQ)), vWQ: make([]float64, len(m.WQ)),
 		mWK: make([]float64, len(m.WK)), vWK: make([]float64, len(m.WK)),
 		mWV: make([]float64, len(m.WV)), vWV: make([]float64, len(m.WV)),
@@ -385,9 +559,23 @@ func newAdam(m *AttnNet) *adamState {
 		mWO: make([]float64, len(m.WO)), vWO: make([]float64, len(m.WO)),
 		mBO: make([]float64, len(m.BO)), vBO: make([]float64, len(m.BO)),
 	}
+	for _, p := range m.Proj {
+		a.Proj = append(a.Proj, &adamProj{
+			mW1: make([]float64, len(p.W1)), vW1: make([]float64, len(p.W1)),
+			mB1: make([]float64, len(p.B1)), vB1: make([]float64, len(p.B1)),
+			mW2: make([]float64, len(p.W2)), vW2: make([]float64, len(p.W2)),
+			mB2: make([]float64, len(p.B2)), vB2: make([]float64, len(p.B2)),
+		})
+	}
+	return a
 }
 
 // grads holds the accumulated gradient of the mean BCE loss over a mini-batch.
+type projGrad struct {
+	W1, B1 []float64
+	W2, B2 []float64
+}
+
 type grads struct {
 	WQ []float64
 	WK []float64
@@ -395,10 +583,11 @@ type grads struct {
 	W1, B1 []float64
 	W2, B2 []float64
 	WO, BO []float64
+	Proj []*projGrad
 }
 
 func newGrads(m *AttnNet) *grads {
-	return &grads{
+	g := &grads{
 		WQ: make([]float64, len(m.WQ)),
 		WK: make([]float64, len(m.WK)),
 		WV: make([]float64, len(m.WV)),
@@ -406,6 +595,13 @@ func newGrads(m *AttnNet) *grads {
 		W2: make([]float64, len(m.W2)), B2: make([]float64, len(m.B2)),
 		WO: make([]float64, len(m.WO)), BO: make([]float64, len(m.BO)),
 	}
+	for _, p := range m.Proj {
+		g.Proj = append(g.Proj, &projGrad{
+			W1: make([]float64, len(p.W1)), B1: make([]float64, len(p.B1)),
+			W2: make([]float64, len(p.W2)), B2: make([]float64, len(p.B2)),
+		})
+	}
+	return g
 }
 
 // backprop accumulates the (weighted) BCE gradient for one (x, y) sample into
@@ -480,7 +676,7 @@ func (m *AttnNet) backprop(g *grads, x []float64, y float64, w float64) {
 	wOff := 0
 	for t := 0; t < nT; t++ {
 		d := m.Dims[t]
-		tok := x[m.Offs[t] : m.Offs[t]+d]
+		tok := a.xeff[m.Offs[t] : m.Offs[t]+d]
 		for j := 0; j < attnKey; j++ {
 			gv := a.alpha[t] * dctx[j]
 			vrow := g.WV[wOff+j*d : wOff+(j+1)*d]
@@ -497,7 +693,7 @@ func (m *AttnNet) backprop(g *grads, x []float64, y float64, w float64) {
 	wOff = 0
 	for t := 0; t < nT; t++ {
 		d := m.Dims[t]
-		tok := x[m.Offs[t] : m.Offs[t]+d]
+		tok := a.xeff[m.Offs[t] : m.Offs[t]+d]
 		for j := 0; j < attnKey; j++ {
 			dk := dlogits[t] * scale * a.q[j]
 			krow := g.WK[wOff+j*d : wOff+(j+1)*d]
@@ -516,8 +712,41 @@ func (m *AttnNet) backprop(g *grads, x []float64, y float64, w float64) {
 	for j := 0; j < attnKey; j++ {
 		qrow := g.WQ[j*pf : (j+1)*pf]
 		for i := 0; i < pf; i++ {
-			qrow[i] += dq[j] * x[i]
+			qrow[i] += dq[j] * a.xeff[i]
 		}
+	}
+
+	// Joint-trainable input projectors: the loss gradient wrt each projected
+	// token (WK + WV contributions, plus WQ since the token lies in the query
+	// region) is back-propagated through the projector MLP.
+	for pi, p := range m.Proj {
+		tokIdx := len(m.Dims) - len(m.Proj) + pi
+		d := m.Dims[tokIdx]
+		off := m.Offs[tokIdx]
+		wOff := 0
+		for t := 0; t < tokIdx; t++ {
+			wOff += attnKey * m.Dims[t]
+		}
+		dzd := make([]float64, d)
+		for j := 0; j < attnKey; j++ {
+			dk := dlogits[tokIdx] * scale * a.q[j]
+			gv := a.alpha[tokIdx] * dctx[j]
+			krow := m.WK[wOff+j*d : wOff+(j+1)*d]
+			vrow := m.WV[wOff+j*d : wOff+(j+1)*d]
+			for i := 0; i < d; i++ {
+				dzd[i] += dk*krow[i] + gv*vrow[i]
+			}
+		}
+		if off+d <= 3*nnPairDim() {
+			for i := 0; i < d; i++ {
+				var s float64
+				for j := 0; j < attnKey; j++ {
+					s += dq[j] * m.WQ[j*pf+off+i]
+				}
+				dzd[i] += s
+			}
+		}
+		p.backward(g.Proj[pi], a.ph[pi], a.pin[pi], dzd)
 	}
 }
 
@@ -548,4 +777,12 @@ func (a *adamState) step(m *AttnNet, g *grads, n int, lr float64) {
 	adamVec(m.B2, a.mB2, a.vB2, g.B2)
 	adamVec(m.WO, a.mWO, a.vWO, g.WO)
 	adamVec(m.BO, a.mBO, a.vBO, g.BO)
+	for pi, p := range m.Proj {
+		ap := a.Proj[pi]
+		gp := g.Proj[pi]
+		adamVec(p.W1, ap.mW1, ap.vW1, gp.W1)
+		adamVec(p.B1, ap.mB1, ap.vB1, gp.B1)
+		adamVec(p.W2, ap.mW2, ap.vW2, gp.W2)
+		adamVec(p.B2, ap.mB2, ap.vB2, gp.B2)
+	}
 }

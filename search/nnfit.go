@@ -149,10 +149,11 @@ func polarShiftBoth(q, r *Feat) (float64, []float64) {
 // shape-detail cosines, and the sczl color-agnostic global similarity (a
 // second, independent expert whose error set differs — the network learns when
 // to trust it, i.e. soft neural routing).
-func computePairs(q *Feat, refs []*Feat, qm *queryMasks, sczlRows [][]float64) [][]float64 {
+func computePairs(q *Feat, refs []*Feat, qm *queryMasks, sczlRows [][]float64) ([][]float64, [][]float64) {
 	out := make([][]float64, len(refs))
 	hists := make([]float64, len(refs))
 	details := make([][]float64, len(refs))
+	zsims := make([][]float64, len(refs))
 	for i, r := range refs {
 		// s[3] (best-shift polar shape) and the per-ring detail come from the
 		// SAME scan (polarShiftBoth) — previously polarShiftSim and
@@ -167,6 +168,7 @@ func computePairs(q *Feat, refs []*Feat, qm *queryMasks, sczlRows [][]float64) [
 		s[5] = 0.5*s[1] + 0.5*s[2] // roundTripFactor
 		s[6] = cosSim(q.Zern, r.Zern)
 		hists[i] = s[0]
+		zsims[i] = zernSim(q.Zern, r.Zern)
 		out[i] = []float64{s[0], s[1], s[2], s[3], s[4], s[5], s[6], qm.score(r.Mask48)}
 	}
 	bestHist := -1.0
@@ -192,14 +194,17 @@ func computePairs(q *Feat, refs []*Feat, qm *queryMasks, sczlRows [][]float64) [
 		} else {
 			out[i] = append(out[i], 0)
 		}
+		// projected input-module tokens: placeholder filled by the projector in
+		// forward.
+		out[i] = append(out[i], make([]float64, nnZernOut)...)
 	}
-	return out
+	return out, zsims
 }
 
 // buildPairData computes the pair feature vectors, the query-level statistics
 // and the sczl global scores for a query, in one place shared by training and
 // evaluation so the NN never sees inconsistent feature layouts.
-func buildPairData(q *Feat, refs []*Feat, qm *queryMasks, sczlIx *sczl.Index, qd sczl.Descriptor) ([][]float64, []float64, []float64) {
+func buildPairData(q *Feat, refs []*Feat, qm *queryMasks, sczlIx *sczl.Index, qd sczl.Descriptor) ([][]float64, []float64, []float64, [][]float64) {
 	var sczlRows [][]float64
 	if sczlIx != nil && qd.Valid {
 		pq := sczl.PrepareQuery(qd, 36)
@@ -218,10 +223,10 @@ func buildPairData(q *Feat, refs []*Feat, qm *queryMasks, sczlIx *sczl.Index, qd
 // buildPairDataScored is buildPairData with the sczl row scores supplied by the
 // caller (e.g. computed only for a pre-filtered shortlist). Each row holds the
 // fused single score (SCZLSPLIT unset) or the 6 sub-signals (SCZLSPLIT=1).
-func buildPairDataScored(q *Feat, refs []*Feat, qm *queryMasks, sczlRows [][]float64) ([][]float64, []float64, []float64) {
-	pairs := computePairs(q, refs, qm, sczlRows)
+func buildPairDataScored(q *Feat, refs []*Feat, qm *queryMasks, sczlRows [][]float64) ([][]float64, []float64, []float64, [][]float64) {
+	pairs, zsims := computePairs(q, refs, qm, sczlRows)
 	best, gap := queryStats(pairs)
-	return pairs, best, gap
+	return pairs, best, gap, zsims
 }
 
 // cheapPref is the rotation-invariant, scan-free pre-filter score
@@ -278,13 +283,30 @@ func queryStats(pairs [][]float64) (best, gap []float64) {
 	return best, gap
 }
 
-func nnVec(pair, best, gap, color []float64) []float64 {
+func nnVec(pair, best, gap, color, zsim []float64) []float64 {
 	x := make([]float64, 0, nnInput)
 	x = append(x, pair...)
 	x = append(x, best...)
 	x = append(x, gap...)
 	x = append(x, color...)
+	x = append(x, zsim...)
 	return x
+}
+
+// zernSim returns the per-mode min similarity of two L2-normalized Zernike
+// magnitude vectors (histogram-intersection style), preserving which subbands
+// match instead of collapsing to a single cosine. The result is the raw input
+// of the jointly-trained Zernike input projector.
+func zernSim(q, r []float64) []float64 {
+	out := make([]float64, len(q))
+	for i := range q {
+		if q[i] < r[i] {
+			out[i] = q[i]
+		} else {
+			out[i] = r[i]
+		}
+	}
+	return out
 }
 
 // rankNN ranks refs for query q by the attention-net's predicted relevance, in
@@ -341,10 +363,10 @@ func rankNNPri(q *Feat, refs []*Feat, predict func([]float64) float64, sczlIx *s
 	for j, ki := range keep {
 		keptRefs[j] = refs[ki]
 	}
-	pairs, best, gap := buildPairDataScored(q, keptRefs, qm, sczlRows)
+	pairs, best, gap, zsims := buildPairDataScored(q, keptRefs, qm, sczlRows)
 	score := make([]float64, nKeep)
 	for j := range keptRefs {
-		score[j] = predict(nnVec(pairs[j], best, gap, q.ColorProj))
+		score[j] = predict(nnVec(pairs[j], best, gap, q.ColorProj, zsims[j]))
 	}
 	outKeep := make([]int, nKeep)
 	for j := range outKeep {
@@ -419,6 +441,7 @@ type nnQuery struct {
 	best    []float64
 	gap     []float64
 	color   []float64 // query's 32x32 color projection histogram
+	zsims   [][]float64 // per-ref Zernike per-mode similarity (projector input)
 }
 
 // runTrain builds a labeled dataset from a gentest-generated directory, trains
@@ -511,9 +534,9 @@ func runTrain(root string, args []string) {
 	var samples []nnSample
 	for i := range queries {
 		qu := &queries[i]
-		samples = append(samples, nnSample{x: nnVec(qu.pairs[qu.trueIdx], qu.best, qu.gap, qu.color), y: 1, w: 1})
+		samples = append(samples, nnSample{x: nnVec(qu.pairs[qu.trueIdx], qu.best, qu.gap, qu.color, qu.zsims[qu.trueIdx]), y: 1, w: 1})
 		for _, j := range hardNegs(qu, i) {
-			samples = append(samples, nnSample{x: nnVec(qu.pairs[j], qu.best, qu.gap, qu.color), y: 0, w: 1})
+			samples = append(samples, nnSample{x: nnVec(qu.pairs[j], qu.best, qu.gap, qu.color, qu.zsims[j]), y: 0, w: 1})
 		}
 	}
 	fmt.Printf("samples: %d\n", len(samples))
@@ -580,8 +603,8 @@ func runTrain(root string, args []string) {
 
 func buildNNQuery(q *Feat, refs []*Feat, sczlIx *sczl.Index, qd sczl.Descriptor, trueIdx int) nnQuery {
 	qm := newQueryMasks(q.Mask48)
-	pairs, best, gap := buildPairData(q, refs, qm, sczlIx, qd)
-	return nnQuery{trueIdx: trueIdx, pairs: pairs, best: best, gap: gap, color: q.ColorProj}
+	pairs, best, gap, zsims := buildPairData(q, refs, qm, sczlIx, qd)
+	return nnQuery{trueIdx: trueIdx, pairs: pairs, best: best, gap: gap, color: q.ColorProj, zsims: zsims}
 }
 
 // buildSCZLRefs extracts the sczl descriptor of every reference sprite, as the
@@ -641,7 +664,7 @@ func trainAt1(m *AttnNet, queries []nnQuery) int {
 		qu := &queries[i]
 		bestScore, bestIdx := -1.0, -1
 		for j := range qu.pairs {
-			if v := m.predict(nnVec(qu.pairs[j], qu.best, qu.gap, qu.color)); v > bestScore {
+			if v := m.predict(nnVec(qu.pairs[j], qu.best, qu.gap, qu.color, qu.zsims[j])); v > bestScore {
 				bestScore, bestIdx = v, j
 			}
 		}
@@ -800,7 +823,7 @@ func runRankReport(root string, args []string) {
 		m64 := make([]float64, len(refs))
 		m32 := make([]float64, len(refs))
 		sc := make([]float64, len(refs))
-		pairs, best, g := buildPairData(q, refs, newQueryMasks(q.Mask48), nil, sczl.Descriptor{})
+		pairs, best, g, zsims := buildPairData(q, refs, newQueryMasks(q.Mask48), nil, sczl.Descriptor{})
 		gap[i] = g[0]
 		nn := make([]float64, len(refs))
 		for j, r := range refs {
@@ -808,7 +831,7 @@ func runRankReport(root string, args []string) {
 			m64[j] = maskScore(q, r)
 			m32[j] = maskScoreGrid(q, r, 32)
 			sc[j] = shapeContextSim(q, r)
-			nn[j] = m.predict(nnVec(pairs[j], best, g, q.ColorProj))
+			nn[j] = m.predict(nnVec(pairs[j], best, g, q.ColorProj, zsims[j]))
 		}
 		rank := func(v []float64) int {
 			r := 1

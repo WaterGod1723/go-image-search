@@ -180,7 +180,7 @@ func extractQuery(img *image.NRGBA) []Px {
 	// the thinnest interiors.
 	closeD := 3
 	if v := os.Getenv("CLOSED"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			closeD = n
 		}
 	}
@@ -191,23 +191,44 @@ func extractQuery(img *image.NRGBA) []Px {
 		mask = erode(mask, w, h)
 	}
 
-	// connected components: keep ALL fully-interior components (a rotated thin
-	// sprite fragments into several; only border-touching parts are text that
-	// spills, which we discard). Fall back to the largest interior component if
-	// nothing is interior.
+	// connected components: keep the largest fully-interior component plus any
+	// other interior component at least blobMinFrac of its area (a rotated thin
+	// sprite fragments into several pieces; edge text / noise blobs are far
+	// smaller). Fall back to the largest component overall if nothing is
+	// interior.
 	comps := comps(mask, w, h)
 	if len(comps) == 0 {
 		return nil
 	}
-	var best []int
-	for _, c := range comps {
-		if touchesBorder(c, w, h) {
-			continue
+	blobMinFrac := 0.15
+	if v := os.Getenv("BLOBMIN"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 && f <= 1 {
+			blobMinFrac = f
 		}
-		best = append(best, c...)
+	}
+	var interior [][]int
+	for _, c := range comps {
+		if !touchesBorder(c, w, h) {
+			interior = append(interior, c)
+		}
+	}
+	var best []int
+	if len(interior) > 0 {
+		maxArea := 0
+		for _, c := range interior {
+			if len(c) > maxArea {
+				maxArea = len(c)
+			}
+		}
+		for _, c := range interior {
+			if len(c) >= int(float64(maxArea)*blobMinFrac) {
+				best = append(best, c...)
+			}
+		}
 	}
 	if best == nil {
-		// everything touches the border: keep the largest blob overall
+		// everything touches the border, or all interior blobs are tiny:
+		// keep the largest blob overall
 		best = comps[0]
 		for _, c := range comps[1:] {
 			if len(c) > len(best) {

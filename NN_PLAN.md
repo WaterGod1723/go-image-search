@@ -280,6 +280,28 @@ sprite，特征混合了多个物体，且多区域本身没有信号进模型�
   98.3%@3 / 98.3%@5，train@1 峰值 98.5%。nnInput 273→288 维。
 - 剩余 3 miss 均为已知灰色族硬例：分割受损 home_work、dashboard、phone_in_talk。
 
+**提取质量提升（旋转干扰诊断后续）**：3 个 miss 的根因是旋转干扰叠加提取失真：
+- 定量证据：query/ref 的 mask 对真 ref 的 Dice 只有 0.37~0.60（即使按 manifest 真实角度
+  反旋转也低），rankreport 显示 hist/zern（旋转不变）都排真 ref 第 1，但 mask/polar/SC
+  （旋转敏感）排 30~64 名——NN 被坏掉的形状特征拖下水。
+- 修复 1（`BLOBMIN=0.15`，sprite.go 连通域过滤）：原"保留全部 interior 连通域"把边缘
+  文本 blob（"热卖63"/"50"/"详情"等）当 sprite 收进来，污染 mask 并撑大 RMS。改为保留
+  最大块 + ≥15% 面积的块。
+- 修复 2（`CLOSED=0`，sprite.go 形态学）：closeD=3 的膨胀把 dashboard 网格方块间隙
+  （~2px）填死成实心块，且 D=1/3 都损毁 home_work 薄线条（no-morph maskScore 0.373→0.768）。
+  支持 `CLOSED >= 0`（0=无形态学）。
+- **重训后 test 98.3%@1（118/120，miss 3→2，home_work 召回）/ 98.3%@3 / 98.3%@5，
+  train@1 99.2%**。`weights_ext0.gob`。剩余 2 miss：dashboard（shape 特征仍全坏：
+  zern=64/m64=55）、phone_in_talk（mask rank 49，hist/zern 均第 1）。
+- 注意：改提取后必须重训对齐（旧权重下 CLOSED=0 特征分布偏移，eval 不变）。
+
+**mask 可信度门控（方案2，已尝试，弃用）**：给模型加 query 级专家一致性 token
+（hist 冠军的 mask 分 + mask 冠军的 hist 分，2 维，layout 变 8 token，nnInput 294），
+让 NN 学会"专家分歧时信 hist"。CLOSED=0 重训 60 epoch 后：
+- test **97.5/98.3/99.2**，miss 3 个（dashboard 推进到 rank4、home_work 已召回，但
+  account_balance 新 miss）。净效果比 ext0（98.3）差 → 已回退，定稿用 ext0。
+- 教训：硬 argmax 的一致性门控太粗，网络在部分查询上被误导；门控收益不敌副作用。
+
 **COLOR 方案 A vs B（对比）**：A（32×32 投影直方图，query 静态色块）与 B（16×16 逐格
 颜色相似度，query↔ref pair 特征）对比：
 - A：`Feat.ColorProj` 192 维 + 独立 token（nnInput 288）；`buildColorProj` 算行/列平均 RGB。
@@ -549,3 +571,28 @@ baseline adaptive / neural MLP (§4):  92.4% / 96.6%
   单图 embedding 输入；它作为 NN 的 pair 特征（§2 soft 路由）才是正确用法。embedding
   侧保留纯旋转不变 buildFeat 特征即可，sczl 特征作为可选扩展保留（`EMBSCZL`），
   默认关闭。
+
+### 联合训练输入投影器（InputProjector）实验
+
+> 需求：实现一个可复用的联合训练输入投影模块：把高维逐分量相似度（49 维 Zernike
+> min-sim）经共享 MLP（49→16→8）压成低维 token，patch 进注意力网络的 token 槽，
+> 端到端联合训练；未来可复用于其他原始特征块。
+> 实现：`InputProjector`（nn.go，config 表 `attnProjConfigs`，当前含 zern 49→16→8）、
+> gob 持久化、adam 优化、梯度全链路。布局：`nnPairDim=8+2+16+sczlDim+8=40`，
+> `nnInput=3*40+192+49=361`（raw zsim 作为 carry 区输入）。
+
+| 版本 | 输入维 | train@1 终值 | test recall@1/@3/@5 | 结论 |
+| --- | --- | --- | --- | --- |
+| ext0（定稿，无投影器） | 288 | 99.2% | 118/120 (98.3%) | baseline |
+| zproj（联合 Zernike 投影） | 361 | 99.1% | 117/120 (97.5%) | **中性**（差 1 票，噪声内） |
+
+- **中性结果**：+49 维 raw carry + 8 维投影 token，recall@1 118→117，
+  在 120 个测试查询上属噪声范围。miss 集合不同（zproj 错 account_balance/
+  dashboard/phone_in_talk；ext0 错另外 3 张），但错误率相同量级。
+- **原因**：基础 8 维里已有 zern 余弦（s[6]），49 维 min-sim 与其高度冗余；投影器
+  学到的新判别力 ≈ 0。投影框架本身工作正常（梯度流、保存/加载、训练曲线均验证）。
+- **教训**：投影器只对"基础特征里没有的新特征族"才有价值；Zernike 已用余弦形式表达，
+  再加逐分量版本冗余。框架保留（`weights_zproj.gob` 可训练/加载），后续若引入真正
+  正交的新特征（如纹理/边缘直方图）可直接复用。
+- **布局不兼容警告**：新布局（pf=40, nnInput=361）与旧 gob（ext0 等，pf=32,
+  nnInput=288）不兼容；旧权重在新代码下 valid() 检查失败，评测需用对应版本编译。
