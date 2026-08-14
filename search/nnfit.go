@@ -38,13 +38,15 @@ func buildPairData(q *Feat, refs []*Feat) [][]float64 {
 // buildPairVec returns the raw feature blocks for one (query, ref) pair.
 // Per descriptor: [min(q,r) | |q-r|] — the overlap view says "how much both
 // have", the diff view says "who is missing what". Block layout (raw dims):
-// zern 2*49, hist 2*288, radial 2*16, angmag 2*192.
+// zern 2*49, hist 2*288, radial 2*16, angmag 2*192, struct 2*16 (rotation-
+// pooled structure embeddings of query and ref).
 func buildPairVec(q, r *Feat) []float64 {
 	out := make([]float64, 0, nnProjRawIn())
 	out = append(out, overlapDiff(q.Zern, r.Zern)...)
 	out = append(out, overlapDiff(q.Hist, r.Hist)...)
 	out = append(out, overlapDiff(q.Radial, r.Radial)...)
 	out = append(out, overlapDiff(q.AngMag, r.AngMag)...)
+	out = append(out, overlapDiff(q.Emb[:snEmb], r.Emb[:snEmb])...)
 	return out
 }
 
@@ -65,6 +67,86 @@ func overlapDiff(a, b []float64) []float64 {
 		out = append(out, dv)
 	}
 	return out
+}
+
+// ---- structure-CNN deferred backward context ----
+//
+// The structure embedding of every query/ref is recomputed once per epoch; the
+// per-pair backprop accumulates gradients w.r.t. those embeddings into qAcc/rAcc
+// (via snSplitGrad, called from the attention backprop for the structure block),
+// and at the end of the epoch runTrain runs the CNN/MLP backward once per image
+// with the accumulated gradients.
+var snCur = &snCtx{}
+
+// snCtx carries the per-epoch structure-CNN scaffolding. The structure CNN is
+// updated ONCE per epoch from gradients accumulated per image (deferred
+// backward: conv/MLP path recomputed per image with the accumulated embedding
+// gradients), which keeps training fast (forwards cached per epoch, no
+// per-sample conv recompute). To keep the large accumulated step from
+// destabilizing, snStep clamps the effective gradient by max-norm and the CNN
+// uses a smaller learning rate snLR.
+type snCtx struct {
+	active   bool
+	qIdx, rIdx int     // current sample's query/ref indices (set each sample)
+	qE, rE   []float64 // current pair's q/r embeddings (for snSplitGrad)
+	qDemb, rDemb []float64 // per-sample embedding grad scratch (zeroed each sample)
+	qAcc, rAcc  []float64 // per-image accumulated embedding gradients (whole epoch)
+	qFs, qmhs   []float64 // per query snRot orientations: F and MLP-hidden rows
+	qWins       []int     // per query winning orientation per emb dim
+	rFs, rmhs   []float64 // per ref F and MLP-hidden rows
+}
+
+// setupSN prepares snCur for a training model: enables the deferred CNN path
+// and allocates the per-epoch accumulators.
+func setupSN(sn *StructNet, nQuery, nRef int) {
+	snCur.active = true
+	snCur.qAcc = make([]float64, nQuery*snEmb)
+	snCur.rAcc = make([]float64, nRef*snEmb)
+	snCur.qFs = make([]float64, nQuery*snRot*snFMap)
+	snCur.qmhs = make([]float64, nQuery*snRot*snHid)
+	snCur.qWins = make([]int, nQuery*snEmb)
+	snCur.rFs = make([]float64, nRef*snFMap)
+	snCur.rmhs = make([]float64, nRef*snHid)
+	snCur.qDemb = make([]float64, snEmb)
+	snCur.rDemb = make([]float64, snEmb)
+}
+
+// snSplitGrad routes the structure block's raw-input gradient din of the
+// CURRENT sample into that sample's q/r embedding gradients (stored in scratch,
+// then consumed by the inline CNN backward in backprop, which accumulates into
+// per-image qAcc/rAcc). The block layout (like every overlapDiff block) is
+// INTERLEAVED: [min0 diff0 min1 diff1 ...], so dim d contributes to positions
+// 2d (overlap) and 2d+1 (directed diff).
+func snSplitGrad(din []float64) {
+	if snCur.qE == nil {
+		return
+	}
+	dq := snCur.qDemb
+	dr := snCur.rDemb
+	for d := 0; d < snEmb; d++ {
+		gm, gd := din[2*d], din[2*d+1]
+		q, r := snCur.qE[d], snCur.rE[d]
+		if q < r {
+			dq[d] += gm
+		} else {
+			dr[d] += gm
+		}
+		switch {
+		case q > r:
+			dq[d] += gd
+			dr[d] -= gd
+		case q < r:
+			dq[d] -= gd
+			dr[d] += gd
+		}
+	}
+	// accumulate into per-image accumulators
+	qi := snCur.qIdx * snEmb
+	ri := snCur.rIdx * snEmb
+	for d := 0; d < snEmb; d++ {
+		snCur.qAcc[qi+d] += dq[d]
+		snCur.rAcc[ri+d] += dr[d]
+	}
 }
 
 // pairSum sums a slice (used to recover scalar similarities from raw blocks
@@ -118,6 +200,12 @@ func nnVec(pair []float64) []float64 {
 // is preserved while big libraries avoid the per-ref block sweep for all but N
 // entries.
 func rankNN(q *Feat, refs []*Feat, m *AttnNet) []int {
+	if m.SN != nil {
+		ensureStructEmb(refs, m.SN)
+		if len(q.Emb) != snEmb {
+			q.Emb = m.SN.embedEmbRot(q.Thumb16)
+		}
+	}
 	return rankNNPri(q, refs, func(x []float64) float64 { return m.predict(x) })
 }
 
@@ -203,13 +291,21 @@ type nnSample struct {
 	rIdx int
 	y    float64
 	w    float64
+	tier negTier // negative difficulty tier (for diagnostics); negEasy for positives
 }
 
 // nnVecInto writes a fresh input vector for (q, r) into buf: zeroed projected-
-// token slots (patched by forward) followed by the raw similarity blocks.
+// token slots (patched by forward) followed by the raw similarity blocks. The
+// structure block is built from the precomputed q/r embeddings (set by the
+// per-epoch recompute); if the deferred CNN is active this also snapshots the
+// current sample's q/r indices and embedding values for backprop attribution.
 func nnVecInto(buf []float64, q, r *Feat) {
 	for i := range buf[:nnPairDim()] {
 		buf[i] = 0
+	}
+	if snCur.active {
+		snCur.qE = q.Emb[:snEmb]
+		snCur.rE = r.Emb[:snEmb]
 	}
 	raw := buf[nnPairDim():]
 	copy(raw[:len(q.Zern)*2], overlapDiff(q.Zern, r.Zern))
@@ -220,6 +316,8 @@ func nnVecInto(buf []float64, q, r *Feat) {
 	copy(raw[off:off+nRing*2], overlapDiff(q.Radial, r.Radial))
 	off += nRing * 2
 	copy(raw[off:], overlapDiff(q.AngMag, r.AngMag))
+	off += nRing * nFreq * 2
+	copy(raw[off:off+2*snEmb], overlapDiff(q.Emb[:snEmb], r.Emb[:snEmb]))
 }
 
 // nnQuery holds a query's Feat and true-ref index. The raw similarity blocks
@@ -231,8 +329,10 @@ type nnQuery struct {
 	trueIdx int
 }
 
-// runTrain builds a labeled dataset from a gentest-generated directory, trains
-// the fusion attention net, and persists the weights.
+// runTrain builds a labeled dataset from a gentest-generated directory, splits
+// refs and queries by source (no leakage), trains the fusion attention net
+// with tiered hard negatives, evaluates on val/test each epoch, and persists
+// the best-val weights.
 func runTrain(root string, args []string) {
 	trainDir := "train_set"
 	weightsPath := "weights.gob"
@@ -256,15 +356,33 @@ func runTrain(root string, args []string) {
 		}
 	}
 
+	// --- load all refs ---
 	refs, refNames := buildRefIndex(root)
-	fmt.Printf("refs: %d\n", len(refs))
+	refSrcIDs := make([]string, len(refNames))
+	for i, n := range refNames {
+		refSrcIDs[i] = sourceIDOf(n)
+	}
+
+	// --- source-level split (no leakage) ---
+	groups := groupRefsBySource(refNames)
+	splitCfg := parseSplitConfig()
+	trainSrcs, valSrcs, testSrcs := splitSources(groups, splitCfg)
+	trainRefIdxs := collectSplitRefs(groups, trainSrcs)
+	valRefIdxs := collectSplitRefs(groups, valSrcs)
+	testRefIdxs := collectSplitRefs(groups, testSrcs)
+
+	fmt.Printf("refs: %d  sources: %d\n", len(refs), len(groups))
+	fmt.Printf("train refs: %d (%d sources)  val refs: %d (%d sources)  test refs: %d (%d sources)\n",
+		len(trainRefIdxs), len(trainSrcs), len(valRefIdxs), len(valSrcs), len(testRefIdxs), len(testSrcs))
+
+	// --- load manifest, extract queries, split by source ---
 	entries := loadManifest(trainDir)
 
 	tPrep := time.Now()
 	type qPrep struct {
-		e       manifestEntry
 		trueIdx int
 		q       *Feat
+		srcID   string
 	}
 	prep := make([]qPrep, len(entries))
 	valid := make([]bool, len(entries))
@@ -288,52 +406,77 @@ func runTrain(root string, args []string) {
 		if ti < 0 {
 			return
 		}
-		prep[i] = qPrep{e: e, trueIdx: ti, q: buildFeat(px)}
+		sid := e.SourceID
+		if sid == "" {
+			sid = sourceIDOf(e.Src)
+		}
+		prep[i] = qPrep{trueIdx: ti, q: buildFeat(px), srcID: sid}
 		valid[i] = true
 	})
-	used := prep[:0]
+
+	var trainQs, valQs, testQs []qPrep
 	for i := range valid {
-		if valid[i] {
-			used = append(used, prep[i])
+		if !valid[i] {
+			continue
+		}
+		switch querySplitOf(prep[i].srcID, trainSrcs, valSrcs, testSrcs) {
+		case "train":
+			trainQs = append(trainQs, prep[i])
+		case "val":
+			valQs = append(valQs, prep[i])
+		case "test":
+			testQs = append(testQs, prep[i])
 		}
 	}
-	fmt.Printf("prep: %d queries (%.1fs)\n", len(used), time.Since(tPrep).Seconds())
-	prep = used
-	if len(prep) == 0 {
-		fatal(fmt.Errorf("no usable queries in %s", trainDir))
+	fmt.Printf("queries: %d  train: %d  val: %d  test: %d  (%.1fs)\n",
+		len(trainQs)+len(valQs)+len(testQs), len(trainQs), len(valQs), len(testQs),
+		time.Since(tPrep).Seconds())
+	if len(trainQs) == 0 {
+		fatal(fmt.Errorf("no usable train queries in %s", trainDir))
 	}
 
-	// Phase 1 (parallel): just keep the queries' Feats (raw blocks are cheap,
-	// they are materialized lazily for the selected samples in phase 2).
-	start := time.Now()
-	queries := make([]nnQuery, len(prep))
-	parFor(len(prep), func(i int) {
-		queries[i] = buildNNQuery(prep[i].q, prep[i].trueIdx)
+	// --- build nnQuery arrays ---
+	queries := make([]nnQuery, len(trainQs))
+	parFor(len(trainQs), func(i int) {
+		queries[i] = buildNNQuery(trainQs[i].q, trainQs[i].trueIdx)
 	})
-	fmt.Printf("prep queries: %.1fs\n", time.Since(start).Seconds())
+	valQueries := make([]nnQuery, len(valQs))
+	parFor(len(valQs), func(i int) {
+		valQueries[i] = buildNNQuery(valQs[i].q, valQs[i].trueIdx)
+	})
+	testQueries := make([]nnQuery, len(testQs))
+	parFor(len(testQs), func(i int) {
+		testQueries[i] = buildNNQuery(testQs[i].q, testQs[i].trueIdx)
+	})
 
-	// Phase 2 (serial): build samples. Per query: 1 positive (the true ref) +
-	// hard negatives (histogram/zernite-closest refs) + a few random negatives,
-	// so the model spends its capacity on the confusable families.
+	// --- build training samples with tiered hard negatives ---
+	nc := defaultNegCounts()
 	var samples []nnSample
+	nEasy, nMed, nHard := 0, 0, 0
 	for i := range queries {
 		qu := &queries[i]
-		samples = append(samples, nnSample{qIdx: i, rIdx: qu.trueIdx, y: 1, w: 1})
-		for _, j := range hardNegs(qu.q, refs, qu.trueIdx, i) {
-			samples = append(samples, nnSample{qIdx: i, rIdx: j, y: 0, w: 1})
+		qSrc := refSrcIDs[qu.trueIdx]
+		samples = append(samples, nnSample{qIdx: i, rIdx: qu.trueIdx, y: 1, w: 1, tier: negEasy})
+		easy, medium, hard := tieredHardNegs(qu.q, refs, refSrcIDs, trainRefIdxs,
+			qu.trueIdx, qSrc, nc, i)
+		for _, j := range easy {
+			samples = append(samples, nnSample{qIdx: i, rIdx: j, y: 0, w: 1, tier: negEasy})
+			nEasy++
+		}
+		for _, j := range medium {
+			samples = append(samples, nnSample{qIdx: i, rIdx: j, y: 0, w: 1, tier: negMedium})
+			nMed++
+		}
+		for _, j := range hard {
+			samples = append(samples, nnSample{qIdx: i, rIdx: j, y: 0, w: 1, tier: negHard})
+			nHard++
 		}
 	}
-	fmt.Printf("samples: %d (%.1fs)\n", len(samples), time.Since(start).Seconds())
+	fmt.Printf("samples: %d  pos=%d  easy_neg=%d  medium_neg=%d  hard_neg=%d\n",
+		len(samples), len(queries), nEasy, nMed, nHard)
 
-	// class-balanced BCE weights
-	nPos, nNeg := 0, 0
-	for _, s := range samples {
-		if s.y == 1 {
-			nPos++
-		} else {
-			nNeg++
-		}
-	}
+	// --- class-balanced BCE weights ---
+	nPos, nNeg := len(queries), nEasy+nMed+nHard
 	total := float64(len(samples))
 	wPos := total / float64(2*nPos)
 	wNeg := total / float64(2*nNeg)
@@ -344,8 +487,23 @@ func runTrain(root string, args []string) {
 			samples[i].w = wNeg
 		}
 	}
-	fmt.Printf("pos=%d neg=%d wPos=%.2f wNeg=%.2f\n", nPos, nNeg, wPos, wNeg)
+	fmt.Printf("pos=%d neg=%d  wPos=%.2f wNeg=%.2f\n", nPos, nNeg, wPos, wNeg)
 
+	// --- build gallery structures for eval ---
+	trainGalleryIdxs := trainRefIdxs
+	trainGalleryRefs := makeGalleryRefs(refs, trainGalleryIdxs)
+	trainGallerySrcIDs := makeGallerySrcIDs(refSrcIDs, trainGalleryIdxs)
+	trainGalleryMap := makeGalleryMap(trainGalleryIdxs)
+
+	valGalleryRefs := makeGalleryRefs(refs, valRefIdxs)
+	valGallerySrcIDs := makeGallerySrcIDs(refSrcIDs, valRefIdxs)
+	valGalleryMap := makeGalleryMap(valRefIdxs)
+
+	testGalleryRefs := makeGalleryRefs(refs, testRefIdxs)
+	testGallerySrcIDs := makeGallerySrcIDs(refSrcIDs, testRefIdxs)
+	testGalleryMap := makeGalleryMap(testRefIdxs)
+
+	// --- model + optimizer setup ---
 	m := newAttnNet(42)
 	adam := newAdam(m)
 	rng := rand.New(rand.NewSource(7))
@@ -354,8 +512,85 @@ func runTrain(root string, args []string) {
 		order[i] = i
 	}
 	xbuf := make([]float64, nnInput)
+
+	sn := m.SN
+	snLR := 0.02 * lr
+	setupSN(sn, len(queries), len(refs))
+	trainRefSet := make(map[int]bool, len(trainRefIdxs))
+	for _, idx := range trainRefIdxs {
+		trainRefSet[idx] = true
+	}
+
+	// recomputeEmb: only train refs + train queries (non-train refs get fresh
+	// embeddings at eval time via evalAllEmb).
+	recomputeEmb := func() {
+		for i, r := range refs {
+			if !trainRefSet[i] {
+				continue
+			}
+			F, mh, emb := sn.embed(r.Thumb16)
+			r.Emb = emb
+			copy(snCur.rFs[i*snFMap:], F)
+			copy(snCur.rmhs[i*snHid:], mh)
+		}
+		for i := range queries {
+			Fs, mhs, emb, wins := sn.embedRot(queries[i].q.Thumb16)
+			queries[i].q.Emb = emb
+			for k := 0; k < snRot; k++ {
+				copy(snCur.qFs[(i*snRot+k)*snFMap:], Fs[k])
+				copy(snCur.qmhs[(i*snRot+k)*snHid:], mhs[k])
+			}
+			copy(snCur.qWins[i*snEmb:], wins)
+		}
+		clear(snCur.qAcc)
+		clear(snCur.rAcc)
+	}
+
+	snBack := func() {
+		sg := newSNGrads(sn)
+		for i, r := range refs {
+			if !trainRefSet[i] {
+				continue
+			}
+			sn.backward(snCur.rAcc[i*snEmb:(i+1)*snEmb], r.Thumb16,
+				snCur.rFs[i*snFMap:(i+1)*snFMap], snCur.rmhs[i*snHid:(i+1)*snHid], sg)
+		}
+		for i := range queries {
+			Fs := make([][]float64, snRot)
+			mhs := make([][]float64, snRot)
+			for k := 0; k < snRot; k++ {
+				Fs[k] = snCur.qFs[(i*snRot+k)*snFMap : (i*snRot+k+1)*snFMap]
+				mhs[k] = snCur.qmhs[(i*snRot+k)*snHid : (i*snRot+k+1)*snHid]
+			}
+			sn.backwardRot(snCur.qAcc[i*snEmb:(i+1)*snEmb], queries[i].q.Thumb16,
+				Fs, mhs, snCur.qWins[i*snEmb:(i+1)*snEmb], sg)
+		}
+		snCur.active = false
+		adam.snStep(sn, sg, len(samples), snLR)
+		snCur.active = true
+	}
+
+	// evalAllEmb computes fresh SN embeddings for ALL refs and all eval queries,
+	// so val/test galleries use current weights.
+	evalAllEmb := func() {
+		for _, r := range refs {
+			_, _, r.Emb = sn.embed(r.Thumb16)
+		}
+		for i := range valQueries {
+			valQueries[i].q.Emb = sn.embedEmbRot(valQueries[i].q.Thumb16)
+		}
+		for i := range testQueries {
+			testQueries[i].q.Emb = sn.embedEmbRot(testQueries[i].q.Thumb16)
+		}
+	}
+
+	recomputeEmb()
+	nnTraining = true
+	best := newAttnNet(42)
+	bestValAcc := -1.0
 	t0 := time.Now()
 	for ep := 0; ep < epochs; ep++ {
+		recomputeEmb()
 		rng.Shuffle(len(order), func(i, j int) { order[i], order[j] = order[j], order[i] })
 		var loss float64
 		for off := 0; off < len(order); off += batch {
@@ -365,6 +600,7 @@ func runTrain(root string, args []string) {
 			for _, si := range order[off:end] {
 				s := samples[si]
 				qu := &queries[s.qIdx]
+				snCur.qIdx, snCur.rIdx = s.qIdx, s.rIdx
 				nnVecInto(xbuf, qu.q, refs[s.rIdx])
 				p, _ := m.forward(xbuf)
 				loss += -s.w * (s.y*mathLog(p) + (1-s.y)*mathLog(1-p))
@@ -372,20 +608,85 @@ func runTrain(root string, args []string) {
 			}
 			adam.step(m, g, n, lr)
 		}
+		snBack()
 		if ep%8 == 0 || ep == epochs-1 {
-			t1 := time.Now()
-			ok := trainAt1(m, queries, refs)
-			fmt.Printf("epoch %d/%d  loss=%.4f  train@1=%d/%d (%.1f%%)  [%.1fs]\n",
-				ep+1, epochs, loss/float64(len(samples)), ok, len(queries),
-				100*float64(ok)/float64(len(queries)), t1.Sub(t0).Seconds())
+			nnTraining = false
+			snCur.active = false
+			// quick train@1 on a 200-query subset + full val metrics
+			for _, r := range refs {
+				_, _, r.Emb = sn.embed(r.Thumb16)
+			}
+			for i := range valQueries {
+				valQueries[i].q.Emb = sn.embedEmbRot(valQueries[i].q.Thumb16)
+			}
+			// sample 200 train queries for a fast train@1 estimate
+			trainSubset := queries
+			if len(queries) > 200 {
+				trainSubset = make([]nnQuery, 200)
+				step := len(queries) / 200
+				for k := 0; k < 200; k++ {
+					trainSubset[k] = queries[k*step]
+					trainSubset[k].q.Emb = sn.embedEmbRot(queries[k*step].q.Thumb16)
+				}
+			}
+			trainMt := computeRankMetrics(m, trainSubset, trainGalleryRefs,
+				trainGallerySrcIDs, trainGalleryMap)
+			valMt := rankMetrics{}
+			if len(valQueries) > 0 {
+				valMt = computeRankMetrics(m, valQueries, valGalleryRefs,
+					valGallerySrcIDs, valGalleryMap)
+			}
+			if valMt.refRecall1 > bestValAcc {
+				bestValAcc = valMt.refRecall1
+				best = cloneNet(m)
+			}
+			nnTraining = true
+			snCur.active = true
+			fmt.Printf("epoch %d/%d  loss=%.4f  train@1=%.1f%%  val@1=%.1f%%  val@5=%.1f%%  val@10=%.1f%%  mrr=%.3f  [%.1fs]\n",
+				ep+1, epochs, loss/float64(len(samples)),
+				100*trainMt.refRecall1,
+				100*valMt.refRecall1, 100*valMt.refRecall5, 100*valMt.refRecall10,
+				valMt.mrr, time.Since(t0).Seconds())
 		}
 	}
+	fmt.Printf("best val@1=%.1f%%, restoring best-epoch weights\n", 100*bestValAcc)
+	m = best
 	fmt.Printf("epoch phase: %.1fs\n", time.Since(t0).Seconds())
+	nnTraining = false
+	snCur.active = false
+
+	// --- final evaluation ---
+	fmt.Printf("\n=== Final Evaluation ===\n")
+	evalAllEmb()
+
+	trainMt := computeRankMetrics(m, queries, trainGalleryRefs,
+		trainGallerySrcIDs, trainGalleryMap)
+	printMetrics("Train", trainMt)
+
+	if len(valQueries) > 0 {
+		valMt := computeRankMetrics(m, valQueries, valGalleryRefs,
+			valGallerySrcIDs, valGalleryMap)
+		printMetrics("Validation", valMt)
+	}
+	if len(testQueries) > 0 {
+		testMt := computeRankMetrics(m, testQueries, testGalleryRefs,
+			testGallerySrcIDs, testGalleryMap)
+		printMetrics("Test", testMt)
+	}
+
+	// embedding distance diagnostics
+	stEmb := computeEmbDistStats(m, queries, refs, samples, refSrcIDs, 2000)
+	fmt.Printf("\n  emb pos: mean=%.3f min=%.3f max=%.3f\n", stEmb.posMean, stEmb.posMin, stEmb.posMax)
+	fmt.Printf("  emb neg: mean=%.3f min=%.3f max=%.3f\n", stEmb.negMean, stEmb.negMin, stEmb.negMax)
+	fmt.Printf("  emb hard: mean=%.3f min=%.3f max=%.3f\n", stEmb.hardMean, stEmb.hardMin, stEmb.hardMax)
+
+	// challenge set (optional)
+	runChallengeEval(root, m, refs, refNames, refSrcIDs, trainSrcs, valSrcs, testSrcs, groups)
 
 	if err := m.save(weightsPath); err != nil {
 		fatal(err)
 	}
-	fmt.Printf("weights saved to %s\n", weightsPath)
+	fmt.Printf("\nweights saved to %s\n", weightsPath)
 }
 
 func buildNNQuery(q *Feat, trueIdx int) nnQuery {

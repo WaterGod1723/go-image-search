@@ -12,14 +12,15 @@ import (
 )
 
 type manifestEntry struct {
-	Image     string    `json:"image"`
-	Src       string    `json:"src"`
-	Crop      [4]int    `json:"crop"`
-	Canvas    [2]int    `json:"canvas"`
-	BGHex     string    `json:"bg_hex"`
-	Rotation  float64   `json:"rotation"`
-	Scale     float64   `json:"scale"`
-	Translate [2]int    `json:"translate"`
+	Image     string     `json:"image"`
+	Src       string     `json:"src"`
+	SourceID  string     `json:"source_id,omitempty"`
+	Crop      [4]int     `json:"crop"`
+	Canvas    [2]int     `json:"canvas"`
+	BGHex     string     `json:"bg_hex"`
+	Rotation  float64    `json:"rotation"`
+	Scale     float64    `json:"scale"`
+	Translate [2]int     `json:"translate"`
 	Texts     []TextInfo `json:"texts"`
 }
 
@@ -312,6 +313,23 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// sourceIDOf normalizes a ref filename into a stable source identifier for
+// split isolation. For augmented refs (aug_<base>_vNN.png) the base is
+// extracted; for plain refs the filename is used as-is.
+func sourceIDOf(fn string) string {
+	base := fn
+	if i := strings.LastIndex(base, "."); i > 0 {
+		base = base[:i]
+	}
+	if strings.HasPrefix(base, "aug_") {
+		rest := strings.TrimPrefix(base, "aug_")
+		if idx := strings.LastIndex(rest, "_v"); idx > 0 {
+			return rest[:idx] + ".png"
+		}
+	}
+	return fn
 }
 
 // dumpSegmentation writes the original query and the extracted sprite (green

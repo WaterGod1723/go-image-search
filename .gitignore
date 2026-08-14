@@ -22,19 +22,34 @@ go.work.sum
 # Vendor (uncomment if you don't commit vendor)
 # /vendor/
 
+# Dependencies
+node_modules/
+
+# macOS app bundles
+*.app/
+
 # Project cache / generated output
 .searchcache/
 dump/
 segdump/
 
-# Generated test fixtures (uncomment to ignore)
-# test_set/
-
-# NN training fixtures (157MB, regenerable: go run ./gentest -n 4000 -seed 20260715 -out train_set)
+# NN training data (regenerable, large)
+test_set/
+test_set_norot/
+data/
+mixed2/
+real/
 train_set/
 train_set_lean/
 iconfont_test/
 mixed/
+
+# NN model weights (regenerable model artifacts)
+weights*.gob
+
+# Ad-hoc debug screenshots
+test_pngs/202*.png
+test_pngs/ChatGPT*.png
 
 # Editor / IDE
 .vscode/

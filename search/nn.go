@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/gob"
 	"math"
 	"math/rand"
@@ -35,9 +36,28 @@ import (
 const (
 	// attnKey is the key/value (and query) dimension of the attention head.
 	attnKey = 96
+	// attnHeads splits the attention into independent heads of attnKey/attnHeads
+	// dims each; every head has its own WQ/WK/WV rows and its own per-token
+	// softmax, so each head can specialize on a different descriptor relation
+	// (e.g. shape evidence vs color evidence) instead of all tokens competing in
+	// one shared subspace. attnHeads=1 collapses to the plain single-head net.
+	attnHeads = 4
 	// nFFN is the hidden width of the post-attention feed-forward block.
 	nFFN = 96
+	// nnDrop is the FFN-hidden dropout rate (training only): units are zeroed
+	// with this probability to curb late-epoch overfitting.
+	nnDrop = 0.2
+	// nnTokDrop is the projected-token dropout rate (training only): each token
+	// block (a descriptor's or the structure CNN's projection) is zeroed with
+	// this probability per sample, so the model cannot lean on any single
+	// hand-crafted feature and is forced to fuse the others — including the
+	// image-derived structure token.
+	nnTokDrop = 0.2
 )
+
+// nnTraining gates dropout in forward; set during the training epoch loop and
+// cleared for evaluation (train@1 / inference).
+var nnTraining bool
 
 // nnInput is the per-pair input width: the projected-token slots
 // (nnPairDim) plus the raw blocks carried for the input projectors. It is a
@@ -85,6 +105,7 @@ func attnProjConfigs() []projCfg {
 		{in: 2 * hBins * sBins * vBins, hid: nnProjHid, out: nnProjOut},  // hist   min+diff
 		{in: 2 * nRing, hid: nnProjHid, out: nnProjOut},                  // radial min+diff
 		{in: 2 * nRing * nFreq, hid: nnProjHid, out: nnProjOut},          // angmag min+diff
+		{in: 2 * snEmb, hid: nnProjHid, out: nnProjOut},                  // struct rotation-pooled structure emb min+diff
 	}
 }
 
@@ -167,6 +188,7 @@ type AttnNet struct {
 	BO []float64 // output bias: 1
 
 	Proj []*InputProjector // joint-trainable input projectors (nil-safe)
+	SN   *StructNet        // joint-trainable rotation-pooled structure CNN (nil-safe)
 }
 
 func newAttnNet(seed int64) *AttnNet {
@@ -194,6 +216,7 @@ func newAttnNet(seed int64) *AttnNet {
 	for _, c := range attnProjConfigs() {
 		m.Proj = append(m.Proj, newInputProjector(rng, c.in, c.hid, c.out))
 	}
+	m.SN = newStructNet(rng)
 	return m
 }
 
@@ -233,7 +256,10 @@ func (p *InputProjector) apply(in []float64) (h, out []float64) {
 
 // backward accumulates the projector's weight gradients given the forward
 // hidden activations h, raw input in, and the loss gradient dz wrt its output.
-func (p *InputProjector) backward(g *projGrad, h, in, dz []float64) {
+// It also returns the raw-input gradient din = W1^T·dh (the projector's share
+// of dL/d(raw block)); the structure block's caller splits it through the
+// overlapDiff view into per-image embedding gradients.
+func (p *InputProjector) backward(g *projGrad, h, in, dz []float64) []float64 {
 	// z = W2·h + B2
 	for j := 0; j < p.Out; j++ {
 		g.B2[j] += dz[j]
@@ -259,6 +285,15 @@ func (p *InputProjector) backward(g *projGrad, h, in, dz []float64) {
 			g1row[k] += dh[i] * in[k]
 		}
 	}
+	din := make([]float64, p.In)
+	for k := 0; k < p.In; k++ {
+		var s float64
+		for i := 0; i < p.Hid; i++ {
+			s += dh[i] * p.W1[i*p.In+k]
+		}
+		din[k] = s
+	}
+	return din
 }
 
 func randVec(rng *rand.Rand, n int, scale float64) []float64 {
@@ -281,6 +316,13 @@ func sigmoid(x float64) float64 {
 }
 
 func softmax(v []float64) []float64 {
+	out := make([]float64, len(v))
+	softmaxInto(v, out)
+	return out
+}
+
+// softmaxInto writes softmax(v) into out (len both n).
+func softmaxInto(v, out []float64) {
 	mx := v[0]
 	for _, x := range v[1:] {
 		if x > mx {
@@ -288,7 +330,6 @@ func softmax(v []float64) []float64 {
 		}
 	}
 	var s float64
-	out := make([]float64, len(v))
 	for i, x := range v {
 		out[i] = math.Exp(x - mx)
 		s += out[i]
@@ -296,19 +337,20 @@ func softmax(v []float64) []float64 {
 	for i := range out {
 		out[i] /= s
 	}
-	return out
 }
 
 // attnActs holds the intermediate activations of a forward pass, needed for
 // backprop.
 type attnActs struct {
 	xeff  []float64    // input with projected tokens patched in
-	q     []float64    // attnKey
-	keys  [][]float64  // nTok x attnKey
-	vals  [][]float64  // nTok x attnKey
-	alpha []float64    // nTok
-	ctx   []float64    // attnKey
+	q     []float64    // attnKey (attnHeads stacked)
+	keys  [][]float64  // nTok x attnKey (attnHeads stacked)
+	vals  [][]float64  // nTok x attnKey (attnHeads stacked)
+	alpha []float64    // attnHeads x nTok
+	ctx   []float64    // attnKey (attnHeads stacked)
 	h     []float64    // nFFN (ReLU activations)
+	hm    []bool       // FFN dropout mask (nnTraining only)
+	mask  []bool       // per-token dropout mask (nnTraining only)
 	ffn   []float64    // attnKey
 	ctx2  []float64    // attnKey (post-residual)
 	pin   [][]float64  // per-projector raw input blocks
@@ -319,7 +361,8 @@ type attnActs struct {
 // activations needed for backprop.
 func (m *AttnNet) forward(x []float64) (float64, *attnActs) {
 	a := &attnActs{}
-	scale := 1 / math.Sqrt(float64(attnKey))
+	ph := attnKey / attnHeads
+	scale := 1 / math.Sqrt(float64(ph))
 	nT := len(m.Dims)
 
 	// Patch the projected tokens: replace each projector's token slot with the
@@ -339,57 +382,91 @@ func (m *AttnNet) forward(x []float64) (float64, *attnActs) {
 			a.ph = append(a.ph, h)
 			rawOff += p.In
 		}
+		// token dropout: zero whole token blocks so the net cannot depend on any
+		// single hand-crafted feature and must fuse its complement (incl. the
+		// image-derived structure token). Masked tokens get -inf logits below.
+		if nnTraining {
+			a.mask = make([]bool, len(m.Dims))
+			for t := 0; t < len(m.Dims); t++ {
+				if rand.Float64() < nnTokDrop {
+					sl := a.xeff[m.Offs[t] : m.Offs[t]+m.Dims[t]]
+					for i := range sl {
+						sl[i] = 0
+					}
+					a.mask[t] = true
+				}
+			}
+		}
 	}
 
-	// data-dependent query from the full pair block
+	// per-head data-dependent queries from the full pair block
 	a.q = make([]float64, attnKey)
 	pf := m.PF
-	for j := 0; j < attnKey; j++ {
-		row := m.WQ[j*pf : (j+1)*pf]
-		var v float64
-		for i := 0; i < pf; i++ {
-			v += row[i] * a.xeff[i]
+	for h := 0; h < attnHeads; h++ {
+		for j := 0; j < ph; j++ {
+			row := m.WQ[(h*ph+j)*pf : (h*ph+j+1)*pf]
+			var v float64
+			for i := 0; i < pf; i++ {
+				v += row[i] * a.xeff[i]
+			}
+			a.q[h*ph+j] = v
 		}
-		a.q[j] = v
 	}
 
-	// per-token key/value projections + attention logits
+	// per-head per-token key/value projections + attention logits: each head
+	// attends over the SAME tokens but with its own WK/WV/softmax, so a head
+	// can lock onto one relation (e.g. shape descriptors) while another covers
+	// a different one.
 	a.keys = make([][]float64, nT)
 	a.vals = make([][]float64, nT)
-	logits := make([]float64, nT)
+	logits := make([]float64, attnHeads*nT)
 	wOff := 0
 	for t := 0; t < nT; t++ {
 		d := m.Dims[t]
 		tok := a.xeff[m.Offs[t] : m.Offs[t]+d]
-		k := make([]float64, attnKey)
-		v := make([]float64, attnKey)
-		for j := 0; j < attnKey; j++ {
-			krow := m.WK[wOff+j*d : wOff+(j+1)*d]
-			vrow := m.WV[wOff+j*d : wOff+(j+1)*d]
-			var kv, vv float64
-			for i := 0; i < d; i++ {
-				kv += krow[i] * tok[i]
-				vv += vrow[i] * tok[i]
+		a.keys[t] = make([]float64, attnKey)
+		a.vals[t] = make([]float64, attnKey)
+		for h := 0; h < attnHeads; h++ {
+			kr := wOff + h*ph*d
+			for j := 0; j < ph; j++ {
+				krow := m.WK[kr+j*d : kr+(j+1)*d]
+				vrow := m.WV[kr+j*d : kr+(j+1)*d]
+				var kv, vv float64
+				for i := 0; i < d; i++ {
+					kv += krow[i] * tok[i]
+					vv += vrow[i] * tok[i]
+				}
+				a.keys[t][h*ph+j] = kv
+				a.vals[t][h*ph+j] = vv
 			}
-			k[j] = kv
-			v[j] = vv
 		}
-		a.keys[t] = k
-		a.vals[t] = v
-		var s float64
-		for j := 0; j < attnKey; j++ {
-			s += a.q[j] * k[j]
+		for h := 0; h < attnHeads; h++ {
+			if len(a.mask) > 0 && a.mask[t] {
+				logits[h*nT+t] = -1e9
+				continue
+			}
+			var s float64
+			for j := 0; j < ph; j++ {
+				s += a.q[h*ph+j] * a.keys[t][h*ph+j]
+			}
+			logits[h*nT+t] = s * scale
 		}
-		logits[t] = s * scale
 		wOff += attnKey * d
 	}
-	a.alpha = softmax(logits)
 
-	// attended context
+	// per-head softmax over the tokens
+	a.alpha = make([]float64, attnHeads*nT)
+	for h := 0; h < attnHeads; h++ {
+		softmaxInto(logits[h*nT:(h+1)*nT], a.alpha[h*nT:(h+1)*nT])
+	}
+
+	// attended context per head, concatenated
 	a.ctx = make([]float64, attnKey)
-	for t := 0; t < nT; t++ {
-		for j := 0; j < attnKey; j++ {
-			a.ctx[j] += a.alpha[t] * a.vals[t][j]
+	for h := 0; h < attnHeads; h++ {
+		for t := 0; t < nT; t++ {
+			for j := 0; j < ph; j++ {
+				a.ctx[h*ph+j] += a.alpha[h*nT+t] * a.vals[t][h*ph+j]
+			}
 		}
 	}
 
@@ -402,6 +479,15 @@ func (m *AttnNet) forward(x []float64) (float64, *attnActs) {
 			v += row[i] * a.ctx[i]
 		}
 		a.h[j] = relu(v)
+	}
+	if nnTraining {
+		a.hm = make([]bool, nFFN)
+		for i := range a.h {
+			if rand.Float64() < nnDrop {
+				a.h[i] = 0
+				a.hm[i] = true
+			}
+		}
 	}
 	a.ffn = make([]float64, attnKey)
 	for j := 0; j < attnKey; j++ {
@@ -455,7 +541,18 @@ func (m *AttnNet) valid() bool {
 		len(m.W1) == nFFN*attnKey && len(m.B1) == nFFN &&
 		len(m.W2) == attnKey*nFFN && len(m.B2) == attnKey &&
 		len(m.WO) == attnKey && len(m.BO) == 1 &&
-		validProjectors(m)
+		validProjectors(m) && validStructNet(m.SN)
+}
+
+// validStructNet checks the structure-CNN's shape against the constants.
+func validStructNet(sn *StructNet) bool {
+	if sn == nil {
+		return false
+	}
+	return len(sn.W1) == snC1*9 && len(sn.B1) == snC1 &&
+		len(sn.W2) == snC2*snC1*9 && len(sn.B2) == snC2 &&
+		len(sn.W3) == snHid*snFMap && len(sn.B3) == snHid &&
+		len(sn.W4) == snEmb*snHid && len(sn.B4) == snEmb
 }
 
 // validProjectors checks the input-projector shapes against attnProjConfigs.
@@ -500,6 +597,20 @@ func loadAttnNet(path string) (*AttnNet, error) {
 	return m, nil
 }
 
+// cloneNet deep-copies an AttnNet via gob (used to snapshot the best-epoch
+// weights for early stopping).
+func cloneNet(m *AttnNet) *AttnNet {
+	var buf bytes.Buffer
+	if err := gob.NewEncoder(&buf).Encode(m); err != nil {
+		fatal(err)
+	}
+	c := &AttnNet{}
+	if err := gob.NewDecoder(&buf).Decode(c); err != nil {
+		fatal(err)
+	}
+	return c
+}
+
 // ---- training (Adam) ----
 
 type adamProj struct {
@@ -518,7 +629,13 @@ type adamState struct {
 	mWO, vWO []float64
 	mBO, vBO []float64
 	Proj     []*adamProj
+	sn       *adamSN
 	t        int
+}
+
+// adamSN is the Adam state of the structure CNN (deferred, once per epoch).
+type adamSN struct {
+	W1, B1, W2, B2, W3, B3, W4, B4 [][]float64 // [m, v] pairs
 }
 
 func newAdam(m *AttnNet) *adamState {
@@ -541,6 +658,13 @@ func newAdam(m *AttnNet) *adamState {
 			mB2: make([]float64, len(p.B2)), vB2: make([]float64, len(p.B2)),
 		})
 	}
+	zero2 := func(n int) [][]float64 { return [][]float64{make([]float64, n), make([]float64, n)} }
+	a.sn = &adamSN{
+		W1: zero2(len(m.SN.W1)), B1: zero2(len(m.SN.B1)),
+		W2: zero2(len(m.SN.W2)), B2: zero2(len(m.SN.B2)),
+		W3: zero2(len(m.SN.W3)), B3: zero2(len(m.SN.B3)),
+		W4: zero2(len(m.SN.W4)), B4: zero2(len(m.SN.B4)),
+	}
 	return a
 }
 
@@ -558,6 +682,7 @@ type grads struct {
 	W2, B2 []float64
 	WO, BO []float64
 	Proj []*projGrad
+	SN   *snGrads
 }
 
 func newGrads(m *AttnNet) *grads {
@@ -575,6 +700,7 @@ func newGrads(m *AttnNet) *grads {
 			W2: make([]float64, len(p.W2)), B2: make([]float64, len(p.B2)),
 		})
 	}
+	g.SN = newSNGrads(m.SN)
 	return g
 }
 
@@ -583,7 +709,8 @@ func newGrads(m *AttnNet) *grads {
 func (m *AttnNet) backprop(g *grads, x []float64, y float64, w float64) {
 	p, a := m.forward(x)
 	dO := (p - y) * w // dL/dz for BCE with sigmoid
-	scale := 1 / math.Sqrt(float64(attnKey))
+	ph := attnKey / attnHeads
+	scale := 1 / math.Sqrt(float64(ph))
 	nT := len(m.Dims)
 
 	// output head
@@ -609,8 +736,8 @@ func (m *AttnNet) backprop(g *grads, x []float64, y float64, w float64) {
 		}
 	}
 	for i := 0; i < nFFN; i++ {
-		if a.h[i] <= 0 {
-			dh[i] = 0 // ReLU derivative
+		if a.h[i] <= 0 || (len(a.hm) > 0 && a.hm[i]) {
+			dh[i] = 0 // ReLU derivative and, in training, the FFN dropout mask
 		}
 		g.B1[i] += dh[i]
 		w1row := m.W1[i*attnKey : (i+1)*attnKey]
@@ -626,73 +753,89 @@ func (m *AttnNet) backprop(g *grads, x []float64, y float64, w float64) {
 		dctx[k] = dctx2[k] + dctxFFN[k]
 	}
 
-	// dL/dalpha[t] = dctx · v_t
-	dalpha := make([]float64, nT)
-	for t := 0; t < nT; t++ {
-		var s float64
-		for j := 0; j < attnKey; j++ {
-			s += dctx[j] * a.vals[t][j]
+	// dL/dalpha[h,t] = dctx_h · v_{h,t}
+	dalpha := make([]float64, attnHeads*nT)
+	for h := 0; h < attnHeads; h++ {
+		for t := 0; t < nT; t++ {
+			var s float64
+			for j := 0; j < ph; j++ {
+				s += dctx[h*ph+j] * a.vals[t][h*ph+j]
+			}
+			dalpha[h*nT+t] = s
 		}
-		dalpha[t] = s
 	}
 
-	// softmax backprop: dL/dlogits[t] = alpha[t]*(dalpha[t] - sum_s alpha[s]*dalpha[s])
-	var dot float64
-	for t := 0; t < nT; t++ {
-		dot += a.alpha[t] * dalpha[t]
+	// softmax backprop (per head): dL/dlogits[h,t] = alpha[h,t]*(dalpha[h,t] - dot_h)
+	dot := make([]float64, attnHeads)
+	for h := 0; h < attnHeads; h++ {
+		for t := 0; t < nT; t++ {
+			dot[h] += a.alpha[h*nT+t] * dalpha[h*nT+t]
+		}
 	}
-	dlogits := make([]float64, nT)
-	for t := 0; t < nT; t++ {
-		dlogits[t] = a.alpha[t] * (dalpha[t] - dot)
+	dlogits := make([]float64, attnHeads*nT)
+	for h := 0; h < attnHeads; h++ {
+		for t := 0; t < nT; t++ {
+			dlogits[h*nT+t] = a.alpha[h*nT+t] * (dalpha[h*nT+t] - dot[h])
+		}
 	}
 
-	// dL/dv_t = alpha[t]*dctx  →  WV grads
+	// dL/dv_{h,t} = alpha[h,t]*dctx_h  →  WV grads
 	wOff := 0
 	for t := 0; t < nT; t++ {
 		d := m.Dims[t]
 		tok := a.xeff[m.Offs[t] : m.Offs[t]+d]
-		for j := 0; j < attnKey; j++ {
-			gv := a.alpha[t] * dctx[j]
-			vrow := g.WV[wOff+j*d : wOff+(j+1)*d]
-			for i := 0; i < d; i++ {
-				vrow[i] += gv * tok[i]
+		for h := 0; h < attnHeads; h++ {
+			kr := wOff + h*ph*d
+			for j := 0; j < ph; j++ {
+				gv := a.alpha[h*nT+t] * dctx[h*ph+j]
+				vrow := g.WV[kr+j*d : kr+(j+1)*d]
+				for i := 0; i < d; i++ {
+					vrow[i] += gv * tok[i]
+				}
 			}
 		}
 		wOff += attnKey * d
 	}
 
-	// dL/dk_t = dlogits[t]*scale*q  →  WK grads
-	// dL/dq    = sum_t dlogits[t]*scale*k_t
+	// dL/dk_{h,t} = dlogits[h,t]*scale*q_h  →  WK grads
+	// dL/dq_h     = sum_t dlogits[h,t]*scale*k_{h,t}
 	dq := make([]float64, attnKey)
 	wOff = 0
 	for t := 0; t < nT; t++ {
 		d := m.Dims[t]
 		tok := a.xeff[m.Offs[t] : m.Offs[t]+d]
-		for j := 0; j < attnKey; j++ {
-			dk := dlogits[t] * scale * a.q[j]
-			krow := g.WK[wOff+j*d : wOff+(j+1)*d]
-			for i := 0; i < d; i++ {
-				krow[i] += dk * tok[i]
+		for h := 0; h < attnHeads; h++ {
+			kr := wOff + h*ph*d
+			for j := 0; j < ph; j++ {
+				dk := dlogits[h*nT+t] * scale * a.q[h*ph+j]
+				krow := g.WK[kr+j*d : kr+(j+1)*d]
+				for i := 0; i < d; i++ {
+					krow[i] += dk * tok[i]
+				}
 			}
 		}
-		for j := 0; j < attnKey; j++ {
-			dq[j] += dlogits[t] * scale * a.keys[t][j]
+		for h := 0; h < attnHeads; h++ {
+			for j := 0; j < ph; j++ {
+				dq[h*ph+j] += dlogits[h*nT+t] * scale * a.keys[t][h*ph+j]
+			}
 		}
 		wOff += attnKey * d
 	}
 
 	// q = WQ·pair  →  WQ grads
 	pf := m.PF
-	for j := 0; j < attnKey; j++ {
-		qrow := g.WQ[j*pf : (j+1)*pf]
-		for i := 0; i < pf; i++ {
-			qrow[i] += dq[j] * a.xeff[i]
+	for h := 0; h < attnHeads; h++ {
+		for j := 0; j < ph; j++ {
+			qrow := g.WQ[(h*ph+j)*pf : (h*ph+j+1)*pf]
+			for i := 0; i < pf; i++ {
+				qrow[i] += dq[h*ph+j] * a.xeff[i]
+			}
 		}
 	}
 
 	// Joint-trainable input projectors: the loss gradient wrt each projected
-	// token (WK + WV contributions, plus WQ since the token lies in the query
-	// region) is back-propagated through the projector MLP.
+	// token (per-head WK + WV contributions, plus WQ since the token lies in
+	// the query region) is back-propagated through the projector MLP.
 	for pi, p := range m.Proj {
 		tokIdx := len(m.Dims) - len(m.Proj) + pi
 		d := m.Dims[tokIdx]
@@ -702,25 +845,36 @@ func (m *AttnNet) backprop(g *grads, x []float64, y float64, w float64) {
 			wOff += attnKey * m.Dims[t]
 		}
 		dzd := make([]float64, d)
-		for j := 0; j < attnKey; j++ {
-			dk := dlogits[tokIdx] * scale * a.q[j]
-			gv := a.alpha[tokIdx] * dctx[j]
-			krow := m.WK[wOff+j*d : wOff+(j+1)*d]
-			vrow := m.WV[wOff+j*d : wOff+(j+1)*d]
-			for i := 0; i < d; i++ {
-				dzd[i] += dk*krow[i] + gv*vrow[i]
+		for h := 0; h < attnHeads; h++ {
+			kr := wOff + h*ph*d
+			for j := 0; j < ph; j++ {
+				dk := dlogits[h*nT+tokIdx] * scale * a.q[h*ph+j]
+				gv := a.alpha[h*nT+tokIdx] * dctx[h*ph+j]
+				krow := m.WK[kr+j*d : kr+(j+1)*d]
+				vrow := m.WV[kr+j*d : kr+(j+1)*d]
+				for i := 0; i < d; i++ {
+					dzd[i] += dk*krow[i] + gv*vrow[i]
+				}
 			}
 		}
 		if off+d <= nnPairDim() {
 			for i := 0; i < d; i++ {
 				var s float64
-				for j := 0; j < attnKey; j++ {
-					s += dq[j] * m.WQ[j*pf+off+i]
+				for h := 0; h < attnHeads; h++ {
+					for j := 0; j < ph; j++ {
+						s += dq[h*ph+j] * m.WQ[(h*ph+j)*pf+off+i]
+					}
 				}
 				dzd[i] += s
 			}
 		}
-		p.backward(g.Proj[pi], a.ph[pi], a.pin[pi], dzd)
+		din := p.backward(g.Proj[pi], a.ph[pi], a.pin[pi], dzd)
+		if snCur != nil && snCur.active && pi == len(m.Proj)-1 {
+			// route dL/d(struct block) through overlapDiff into per-sample
+			// embedding grads (zero each sample), then accumulate into the
+			// per-image accumulators via snSplitGrad.
+			snSplitGrad(din)
+		}
 	}
 }
 
@@ -759,4 +913,50 @@ func (a *adamState) step(m *AttnNet, g *grads, n int, lr float64) {
 		adamVec(p.W2, ap.mW2, ap.vW2, gp.W2)
 		adamVec(p.B2, ap.mB2, ap.vB2, gp.B2)
 	}
+	if m.SN != nil && g.SN != nil {
+		a.snStep(m.SN, g.SN, n, lr)
+	}
+}
+
+// snStep applies one Adam update to the structure CNN (called once per epoch
+// with the accumulated gradients; n = number of samples seen in the epoch).
+// Because the accumulated gradient is much larger than a mini-batch's, each
+// parameter's raw gradient is clipped to a max magnitude (maxGrad) so a few
+// high-activation images cannot blow the step into instability.
+const snMaxGrad = 1.0
+
+func (a *adamState) snStep(sn *StructNet, g *snGrads, n int, lr float64) {
+	b1m, b2m := 0.9, 0.999
+	eps := 1e-8
+	inv := 1 / float64(n)
+	t := float64(a.t)
+	vecs := a.sn
+	clip := func(gw []float64) {
+		for i := range gw {
+			if gw[i] > snMaxGrad {
+				gw[i] = snMaxGrad
+			} else if gw[i] < -snMaxGrad {
+				gw[i] = -snMaxGrad
+			}
+		}
+	}
+	adamVec := func(w, mv, vv, gw []float64) {
+		clip(gw)
+		for i := range w {
+			gi := gw[i] * inv
+			mv[i] = b1m*mv[i] + (1-b1m)*gi
+			vv[i] = b2m*vv[i] + (1-b2m)*gi*gi
+			mh := mv[i] / (1 - math.Pow(b1m, t))
+			vh := vv[i] / (1 - math.Pow(b2m, t))
+			w[i] -= lr * mh / (math.Sqrt(vh) + eps)
+		}
+	}
+	adamVec(sn.W1, vecs.W1[0], vecs.W1[1], g.W1)
+	adamVec(sn.B1, vecs.B1[0], vecs.B1[1], g.B1)
+	adamVec(sn.W2, vecs.W2[0], vecs.W2[1], g.W2)
+	adamVec(sn.B2, vecs.B2[0], vecs.B2[1], g.B2)
+	adamVec(sn.W3, vecs.W3[0], vecs.W3[1], g.W3)
+	adamVec(sn.B3, vecs.B3[0], vecs.B3[1], g.B3)
+	adamVec(sn.W4, vecs.W4[0], vecs.W4[1], g.W4)
+	adamVec(sn.B4, vecs.B4[0], vecs.B4[1], g.B4)
 }

@@ -8,14 +8,15 @@ import (
 )
 
 const (
-	hBins = 16
-	sBins = 6
-	vBins = 3
-	nRing = 16
-	nAng  = 24
-	nFreq = 12
-	znMax = 12
-	maskN = 64
+	hBins  = 16
+	sBins  = 6
+	vBins  = 3
+	nRing  = 16
+	nAng   = 24
+	nFreq  = 12
+	znMax  = 12
+	maskN  = 64
+	thumbN = 16
 )
 
 // zernModes collects all (n, m) pairs used: n in 0..znMax, m >= 0 step 2
@@ -89,6 +90,8 @@ type Feat struct {
 	Mono       bool
 	ColorProj  []float64 // 32x32 color projection histogram (row+col mean RGB)
 	Sx, Sy     []float64 // sprite points scaled to Mask48 grid (centroid orgin)
+	Thumb16    []float64 // 16x16 box-downsample of Mask48, per-sprite soft mask
+	Emb        []float64 // 16-dim structure embedding (StructNet, sz 0 until computed)
 	RMS        float64   // root-mean-square radius of sprite pixels
 	MinX, MinY int
 	MaxX, MaxY int
@@ -162,6 +165,7 @@ func buildFeat(px []Px) *Feat {
 		PolarShape: make([]float64, nRing*nAng),
 		PolarCol:   make([]float64, nRing*nAng*3),
 		Zern:       make([]float64, len(zernModes)),
+		Thumb16:    make([]float64, thumbN*thumbN),
 	}
 	f.N = len(px)
 	if f.N == 0 {
@@ -368,6 +372,19 @@ func buildFeat(px []Px) *Feat {
 		}
 		f.Sx[i] = dx * s
 		f.Sy[i] = dy * s
+	}
+	// 6) 16x16 thumbnail: box-downsample of the 48x48 soft mask (3x3 blocks).
+	// Coarse spatial occupancy fed to the rotation-pooled structure CNN.
+	for gy := 0; gy < thumbN; gy++ {
+		for gx := 0; gx < thumbN; gx++ {
+			var v float64
+			for dy := 0; dy < maskN/thumbN; dy++ {
+				for dx := 0; dx < maskN/thumbN; dx++ {
+					v += f.Mask48[(gy*(maskN/thumbN)+dy)*maskN+gx*(maskN/thumbN)+dx]
+				}
+			}
+			f.Thumb16[gy*thumbN+gx] = v / (maskN * maskN / (thumbN * thumbN))
+		}
 	}
 	f.ColorProj = buildColorProj(px)
 	return f

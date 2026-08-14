@@ -4,6 +4,63 @@
 > 提升以图搜图 recall@1。本文档记录方案、实现位置、命令与当前进度，
 > 供上下文压缩后恢复记忆使用。
 
+## 0.9 结构-CNN 架构图（当前，2026-08-14）
+
+当前最强配置：多头注意力 + 旋转池化结构 CNN + token/FFN 双 dropout + 早停 +
+SN 独立小 lr（2000 集已达跨域 77.7% > v2 全量 77.1%）。架构如下：
+
+```mermaid
+flowchart TD
+    subgraph FE["查询 query 图 (Feat)"]
+        Q[Thumb16<br/>16×16 软掩码]
+    end
+    subgraph REF["参考 ref 图 (Feat)"]
+        R[Thumb16<br/>16×16 软掩码]
+    end
+
+    subgraph SN["StructNet 结构CNN<br/>rotation-pooled, lr×0.1"]
+        Q -- 4×rot90max-pool --> SNQ>qEmb 16维<br/>rotation-invariant]
+        R --> SNR>rEmb 16维]
+    end
+
+    subgraph DESC["联合训练投影器 InputProjector<br/>原始描述子 min/diff 双视角 → token"]
+        Z[zern 49×2] --> P1[[MLP hid8<br/>→12]]
+        H[hist 288×2] --> P2[[MLP hid8<br/>→12]]
+        RD[radial 16×2] --> P3[[MLP hid8<br/>→12]]
+        AM[angmag 192×2] --> P4[[MLP hid8<br/>→12]]
+    end
+    SNQ -->|min/diff 16×2| P5[[MLP hid8<br/>→12]]
+    SNR -->|min/diff 16×2| P5
+
+    subgraph ATT["多头自注意力 (4 heads, attnKey96)"]
+        T1[zern token 12] --> MHA{{logits/softmax<br/>逐 head 独立}}
+        T2[hist token 12] --> MHA
+        T3[radial token 12] --> MHA
+        T4[angmag token 12] --> MHA
+        T5[struct token 12] --> MHA
+    end
+    P1 --> T1
+    P2 --> T2
+    P3 --> T3
+    P4 --> T4
+    P5 --> T5
+
+    MHA -- ctx 96 --> FFN[[FFN 96 ReLU<br/>dropout0.2]] --> OUT(("p = sigmoid(WO·ctx+BO)<br/>相关性 [0,1]"))
+    OUT --> RANK[rankRefs<br/>排序]
+```
+
+要点：
+- 每个描述子/结构块过联合训练 MLP 投影成 **12 维 token**；token + 结构块均受
+  **token dropout 0.2** 随机遮蔽，迫使模型不依赖任一强特征、必须看图；
+- 4 头自注意力对 5 个 token 做 token 间协同（不同 head 学不同描述子关系），
+  ctx 接 FFN（dropout 0.2）后线性+sigmoid 输出；
+- **StructNet**（2×conv3x3(8通道)→pool→MLP→16 维）：查询侧对 thumb16 做 4×rot90
+  max-pool 保证旋转不变，ref 侧单绝对姿态；emb 经 min/diff 投成 struct token；
+- 结构 CNN 每 epoch 全量重算嵌入、以 `0.1×lr` 延迟反传（避免梯度爆炸），
+  训练早停取 train@1 峰值权重；
+- 参数量：主注意力 ~（4×48×96×2+96×48+…）＋ 5 投影器 ≈ **49.6k** ＋ StructNet ≈ **6.5k**。
+
+
 ## 0. 最新迭代：精简架构（分支 `exp/attn-lean-proj`，参数 100k→32k）
 
 大砍手工相似度特征，改为"原始逐模式相似度向量 + 联合训练投影器"（learned
@@ -682,3 +739,212 @@ baseline adaptive / neural MLP (§4):  92.4% / 96.6%
   正交的新特征（如纹理/边缘直方图）可直接复用。
 - **布局不兼容警告**：新布局（pf=40, nnInput=361）与旧 gob（ext0 等，pf=32,
   nnInput=288）不兼容；旧权重在新代码下 valid() 检查失败，评测需用对应版本编译。
+
+---
+
+## 1.0 数据质量优化：Source-Level Split + 几何增强 + 分级 Hard Negative + Challenge Set
+
+> 需求：优化 icon/logo 结构检索任务的数据质量，避免模型通过"固定位置、固定尺寸、
+> 简单背景"等 shortcut 获得虚高 train@1，同时增强模型从复杂组合图中识别目标 icon
+> 的能力。**重点：优化数据，不改模型结构。**
+
+### 1. 问题分析
+
+**数据泄漏（最高优先级）**：`runAugRefs` 为每个原始 icon 生成 3 个装饰变体
+（`aug_X_v00/v01/v02`），这些变体全部混在 ref pool 中。当 query 的 true ref 是
+`aug_X_v01` 时，`aug_X_v00` 和 `aug_X_v02` 也在候选中——它们外观几乎相同（同一
+基础 icon，仅装饰不同）。实测：**5989/8000 (75%) 的 query 存在此泄漏**，模型
+不需要学结构，只需认出"哪个基础 icon"即可命中。`hardNegs()` 不感知 source 分组，
+可能把同源变体当 negative。
+
+**几何 shortcut**：`buildAugRef` 中 `ox := (side-sw)/2` 导致 sprite 永远居中，
+无缩放/旋转/翻转/遮挡，模型学会"目标在中央"的 shortcut。
+
+**无 train/val/test split**：全部 8000 queries 进入训练，`trainAt1` 在训练集自身上
+评估，无法检测过拟合。
+
+**negative 质量低**：8 overlap-closest + 3 random，无分级，easy negative 过多。
+
+**无不变性验证**：无 challenge set，无法验证模型是否真正学到 position/scale/
+rotation/occlusion/composition 不变性。
+
+### 2. Source-Level Split（反泄漏）
+
+**原则**：同一原始 icon 的所有变体（original + aug_\*\_v\*\*）必须全部属于同一 split。
+禁止 train 有 `aug_A_v01` 而 val 有 `aug_A_v02`。
+
+**实现**（`search/spliteval.go`）：
+- `sourceIDOf(fn)` 从 ref 文件名提取 sourceID：`aug_assistant_v01.png` → `assistant.png`
+- `groupRefsBySource` 按 sourceID 分组 refs
+- `splitSources` 按 sourceID 随机划分 70/15/15（env `TRAIN_RATIO`/`VAL_RATIO`/
+  `TEST_RATIO`/`SPLIT_SEED` 可配）
+- queries 按其 ref 的 sourceID 归入对应 split
+- **训练 gallery = 仅 train-split refs**；val gallery = val refs；test gallery = test refs
+- **所有 negative 必须来自不同 source**（`tieredHardNegs` 中 `refSrcIDs[ci] == qSourceID`
+  时跳过）
+
+**manifest 追踪**：`manifestEntry` 增加 `SourceID` 字段（`omitempty`，旧 manifest
+自动回退到 `sourceIDOf(Src)`）；`gentest` 的 `Sample` 结构体同样增加 `SourceID`；
+`runAugRefs` 输出 `augrefs_manifest.json` 记录每个 aug ref 的 source/sourceID/variant。
+
+### 3. 增强 buildAugRef（`gentest/augrefs.go`）
+
+| 增强项 | 旧 | 新 |
+|--------|-----|-----|
+| 位置 | 固定居中 `ox=(side-sw)/2` | center ± 30% canvas（`PositionRange`） |
+| 缩放 | 基本不变 | 0.25~1.0，三角分布（中尺寸概率高） |
+| 旋转 | 无 | 0°~360° 连续，概率 80%（`RotationProb`/`RotationMax`） |
+| 镜像 | 无 | 水平翻转，概率 15%（`FlipProb`） |
+| 遮挡 | 无 | 10%~30% 面积，概率 30%（`OcclusionProb`/`OcclusionMin`/`OcclusionMax`） |
+| 难度 | 固定 1-3 shapes + 0-2 texts | 三级：easy(1-2 shapes, 0-1 text) / medium(2-4, 0-2) / hard(3-6, 1-3)，比例 30%/50%/20% |
+
+**关键实现**：
+- `affinePaintAlpha`：透明画布上的正确 src-over-dst alpha 合成（含 alpha 更新），
+  复用 `bilinearSample` 双线性采样，保持 alpha 不被破坏
+- `randScaleTri`：两均匀取平均 → 三角分布，中尺寸概率更高
+- `flipH`：水平翻转 sprite 副本
+- `drawOcclusion`：在 sprite screen rect 内绘制 1-2 个半透明矩形/圆形遮挡
+
+**AugConfig 全部可配**（`gentest` flags 或 `DefaultAugConfig()`）：
+```
+-scale-min/-max, -rot-prob/-max, -flip-prob, -pos-range,
+-occ-prob/-min/-max, -easy-ratio/-med-ratio/-hard-ratio
+```
+
+### 4. 分级 Hard Negative（`search/spliteval.go`）
+
+`tieredHardNegs` 返回 easy/medium/hard 三级 negative，全部来自 train refs 且
+source 不同：
+
+| 级别 | 选择策略 | 数量/query |
+|------|---------|-----------|
+| easy | 随机选取（低 overlap 尾部优先） | 3 |
+| medium | 中段 overlap（~50th percentile 附近随机） | 4 |
+| hard | overlap 最高的 top-N（最 confusable） | 3 |
+
+**比例 1:3:4:3**（positive:easy:medium:hard），可通过 `defaultNegCounts()` 调整。
+旧 `hardNegs`/`trainAt1` 函数保留，方便 A/B 对比。
+
+### 5. 评估指标增强（`search/nnfit.go` + `search/spliteval.go`）
+
+**训练日志**（每 8 epoch + 末轮）：
+```
+epoch 1/50  loss=0.3480  train@1=85.0%  val@1=92.3%  val@5=98.3%  val@10=98.7%  mrr=0.947  [12.8s]
+```
+- `train@1`：200-query 采样子集 vs train gallery（快速估计）
+- `val@1/5/10`：全量 val queries vs val gallery（exhaustive）
+- `mrr`：Mean Reciprocal Rank
+
+**最终评估**：
+```
+=== Final Evaluation ===
+  Train         ref@1=90.2%  ref@5=96.9%  ref@10=97.5%  src@1=91.4%  ...  mrr=0.932  (n=1434)
+  Validation    ref@1=94.0%  ref@5=98.3%  ref@10=99.3%  src@1=96.7%  ...  mrr=0.959  (n=300)
+  Test          ref@1=86.1%  ref@5=93.6%  ref@10=96.6%  src@1=89.1%  ...  mrr=0.899  (n=266)
+
+  emb pos: mean=0.975 min=0.213 max=1.000
+  emb neg: mean=0.052 min=0.000 max=1.000
+  emb hard: mean=0.612 min=0.300 max=1.000
+```
+
+- **ref@K**：严格 ref 级（true ref 必须在 top-K）
+- **src@K**：source 级（同 source 任一 ref 在 top-K 即算命中）
+- **emb 距离统计**：pos/neg/hard 的 mean/min/max 相似度，判断 embedding 是否真正拉开
+
+**Challenge Set**（`gentest/challenge.go` + `search/challenge.go`）：
+```
+Challenge (n=1587, gallery=112 refs):
+    position       ref@1=86.7%  ...  (n=45)
+    scale          ref@1=100.0% ...
+    rotation       ref@1=100.0% ...
+    occlusion      ref@1=59.3%  ...
+    composition    ref@1=33.3%  ...
+    hard-negative  ref@1=11.1%  ...
+```
+6 类 challenge 查询：position(5) / scale(4) / rotation(6) / occlusion(3) /
+composition(4) / hard-negative(1)。Gallery = test-split refs，仅评估 source 在
+test split 中的 challenge query。
+
+### 6. 性能优化
+
+- SN `recomputeEmb` 仅计算 train refs（非 train refs 在 eval 时按需计算）
+- SN `snBack` 仅对 train refs 反传（`trainRefSet` 过滤）
+- `train@1` 用 200-query 采样子集（全量需 5600×520=2.9M 预测，采样仅需 200×520=104k）
+- 周期性 eval 只做 val（不做 train 全量），train 全量仅在最终评估
+- Challenge eval 用 exhaustive（gallery 小，~112 refs）
+
+### 7. 命令与运行
+
+```bash
+# === 生成数据 ===
+# 1. 增强 ref（新几何增强 + manifest）
+go run ./gentest -augrefs mixed/aug -src test_pngs -aug-per-src 3 -augseed 42
+
+# 2. 复制 aug ref 到 ref pool
+cp mixed/aug/*.png mixed/test_pngs/
+
+# 3. 生成 challenge set
+go run ./gentest -challenge mixed/challenge -src test_pngs -seed 42
+
+# 4. 生成查询图（manifest 自动带 source_id）
+go run ./gentest -n 8000 -src mixed/test_pngs -out mixed/train_set_full -seed 42
+
+# === 训练 ===
+go run ./search mixed train mixed/train_set_full weights_new.gob 50
+
+# 自定义 split 比例
+TRAIN_RATIO=0.70 VAL_RATIO=0.15 TEST_RATIO=0.15 SPLIT_SEED=42 \
+  go run ./search mixed train mixed/train_set_full weights_new.gob 50
+
+# === 自定义增强参数 ===
+go run ./gentest -augrefs mixed/aug -src test_pngs -aug-per-src 5 \
+  -aug-scale-min 0.20 -aug-scale-max 1.2 -aug-rot-prob 0.9 -aug-occ-prob 0.4 \
+  -aug-easy-ratio 0.25 -aug-med-ratio 0.50 -aug-hard-ratio 0.25 -augseed 42
+```
+
+### 8. Baseline A/B 对比
+
+旧代码（无 split / 无分级 neg / 无 val/test metrics）保留为 baseline：
+- `hardNegs()` / `trainAt1()` 函数仍在 `nnfit.go` 中（未删除）
+- 用 `git stash` 切换新旧代码训练同一数据集，对比 `weights_baseline.gob` vs
+  `weights_new.gob`
+- 旧 `search . nn weights.gob` 评测 test_set 仍可用（预存 panic 问题是旧 weights.gob
+  无 SN 导致，与本次改动无关）
+
+### 9. 初始测试结果（mixed/train_set_2000, 4 epoch）
+
+| 指标 | 值 | 说明 |
+|------|-----|------|
+| refs | 748 (187 sources) | split: train 524(131) / val 112(28) / test 112(28) |
+| queries | 2000 → train 1434 / val 300 / test 266 | source 隔离 |
+| samples | pos=1434 easy=4302 med=5736 hard=4302 | 1:3:4:3 |
+| train@1 | 85.0%→88.5% (4ep) | 采样估计 |
+| val@1 | 92.3%→94.0% | held-out sources |
+| test@1 | 86.1% | 最终评估 |
+| scale@1 | 100% | 完美尺度不变 |
+| rotation@1 | 100% | 完美旋转不变 |
+| occlusion@1 | 59.3% | **需改进** |
+| composition@1 | 33.3% | **需改进** |
+| hard-negative@1 | 11.1% | **最需改进** |
+| emb hard mean | 0.612 | hard neg 距离不够远 |
+
+**关键发现**：
+- `train@1 ≈ val@1`（85→94 vs 92→94），说明 source-level split 有效消除了泄漏
+- scale/rotation 不变性已学好（100%），说明 Zernike/FFT 旋转不变特征工作正常
+- occlusion/composition/hard-negative 是瓶颈，需要更多遮挡训练数据 + 更强的
+  结构-CNN 容量（但本次不改模型）
+- hard negative embedding 相似度 0.612 偏高，说明 embedding 空间尚未充分分离
+  confusable 族
+
+### 10. 修改文件清单
+
+| 文件 | 改动 |
+|------|------|
+| `gentest/augrefs.go` | **重写**：AugConfig + buildAugRef + affinePaintAlpha + sourceIDOf + drawOcclusion + runAugRefs(manifest) |
+| `gentest/main.go` | 新增 12 个 aug flags + `-challenge` flag + Sample.SourceID |
+| `gentest/challenge.go` | **新建**：runChallenge（6 类 challenge 查询生成） |
+| `search/main.go` | manifestEntry +SourceID + sourceIDOf |
+| `search/spliteval.go` | **新建**：SplitConfig + source split + tieredHardNegs + computeRankMetrics + computeEmbDistStats + gallery helpers |
+| `search/nnfit.go` | **重写 runTrain**：split + tiered neg + val/test metrics + challenge + emb stats；nnSample +tier |
+| `search/challenge.go` | **新建**：runChallengeEval + evalChallengeEntries |
+
