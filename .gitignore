@@ -65,3 +65,27 @@ docs/
 frontend/
 ml/
 test_pngs_trimmed/
+train_set_vit/
+scraped_icons/
+
+# CodeGraph local index
+.codegraph/
+
+# Ad-hoc probe / debug
+__probe/
+test_pngs/icon_*/
+
+# Python model weights (regenerable artifacts)
+*.pth
+vit_model.bin
+
+# Vector search index (regenerable)
+index.bin
+index.bin.sczl
+
+# pynet experiment artifacts (regenerable): training logs, checkpoints,
+# query caches, test alignment scratch data
+pynet/out/
+pynet/data/
+pynet/__pycache__/
+test_align/
